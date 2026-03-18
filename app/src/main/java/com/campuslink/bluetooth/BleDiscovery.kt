@@ -6,10 +6,12 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.os.ParcelUuid
 import com.campuslink.core.CampusLog
+import com.campuslink.core.Constants
 import com.campuslink.domain.model.ConnectionEvent
 import com.campuslink.domain.model.ErrorType
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -56,7 +58,14 @@ class BleDiscovery @Inject constructor(private val bluetoothAdapter: BluetoothAd
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(false).setTimeout(0)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH).build()
-        val uuid = encodeMacToUUID(bluetoothAdapter)
+        // FIX: Use the fixed app-wide UUID to identify CampusLink devices.
+        // Previous code used encodeMacToUUID(bluetoothAdapter) which encodes
+        // bluetoothAdapter.address — but on Android 6+, the OS always returns
+        // the fake MAC "02:00:00:00:00:00" for privacy.  Every device encoded
+        // the same fake MAC, the decoder recovered that same fake address, and
+        // the equality check "if (mac != bluetoothAdapter.address)" was always
+        // false, so no peer MAC was ever emitted and no connection was ever made.
+        val uuid = Constants.MY_APP_UUID
         val data = AdvertiseData.Builder().addServiceUuid(ParcelUuid(uuid))
             .setIncludeDeviceName(false).build()
         advertiseCallback = object : AdvertiseCallback() {
@@ -80,14 +89,20 @@ class BleDiscovery @Inject constructor(private val bluetoothAdapter: BluetoothAd
         }
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        // FIX: Filter by the fixed CampusLink service UUID so we only wake up
+        // for peer devices running this app.  And use result.device.address (the
+        // real Bluetooth MAC reported by the OS in the scan record) instead of
+        // decoding it from the UUID payload.  The decode approach broke because
+        // every device encoded the fake "02:00:00:00:00:00" address (Android 6+
+        // privacy restriction), so nothing was ever emitted.
+        val filter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(Constants.MY_APP_UUID))
+            .build()
         scanCallback = object : ScanCallback() {
             override fun onScanResult(type: Int, result: ScanResult) {
-                result.scanRecord?.serviceUuids?.forEach { parcelUuid ->
-                    try {
-                        if (!parcelUuid.uuid.toString().endsWith("-0000-000000000000")) return@forEach
-                        val mac = decodeMacFromUUID(parcelUuid.uuid)
-                        if (mac != bluetoothAdapter.address) _discoveredMacs.tryEmit(mac)
-                    } catch (_: Exception) {}
+                val mac = result.device.address
+                if (!mac.isNullOrBlank()) {
+                    _discoveredMacs.tryEmit(mac)
                 }
             }
             override fun onScanFailed(code: Int) {
@@ -95,9 +110,10 @@ class BleDiscovery @Inject constructor(private val bluetoothAdapter: BluetoothAd
                 _events.tryEmit(ConnectionEvent.Error(ErrorType.BLE_UNAVAILABLE, "Scan code=$code"))
             }
         }
-        try { leScanner?.startScan(null, settings, scanCallback!!)
-              CampusLog.d("BLE", "Scan started") }
-        catch (e: SecurityException) {
+        try {
+            leScanner?.startScan(listOf(filter), settings, scanCallback!!)
+            CampusLog.d("BLE", "Scan started")
+        } catch (e: SecurityException) {
             _events.tryEmit(ConnectionEvent.Error(ErrorType.PERMISSION_DENIED, e.message ?: ""))
         }
     }

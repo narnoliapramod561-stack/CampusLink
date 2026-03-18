@@ -127,7 +127,12 @@ class BluetoothManager @Inject constructor(
             onDisconnected = { dead ->
                 connectedThreads.remove(dead.deviceAddress)
                 connectedAddresses.remove(dead.deviceAddress)
-                scope.launch { repository.onNodeDisconnected() }
+                scope.launch {
+                    repository.onNodeDisconnected()
+                    if (dead.remoteUserId.isNotBlank()) {
+                        repository.setUserOnline(dead.remoteUserId, false)
+                    }
+                }
                 CampusLog.d("BTManager", "Peer left: ${dead.deviceAddress} | remaining=${connectedThreads.size}")
             }
         )

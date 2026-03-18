@@ -1,10 +1,11 @@
 pluginManagement {
     repositories { google(); mavenCentral(); gradlePluginPortal() }
     plugins {
-        id("com.android.application") version "8.13.2"
-        id("org.jetbrains.kotlin.android") version "1.9.23"
+        id("com.android.application") version "9.1.0"
+        id("org.jetbrains.kotlin.android") version "2.2.10"
         id("com.google.dagger.hilt.android") version "2.51"
-        id("com.google.devtools.ksp") version "1.9.23-1.0.19"
+        id("com.google.devtools.ksp") version "2.3.2"
+        id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
     }
 }
 dependencyResolutionManagement {

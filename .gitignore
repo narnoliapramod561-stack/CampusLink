@@ -1,0 +1,16 @@
+# Android/Gradle Build Artifacts
+.gradle/
+build/
+app/build/
+*.log
+
+# Local SDK and configuration files
+local.properties
+
+# IDE specific files
+.idea/
+*.iml
+.DS_Store
+
+# Gradle Wrapper binary
+gradle/wrapper/gradle-wrapper.jar

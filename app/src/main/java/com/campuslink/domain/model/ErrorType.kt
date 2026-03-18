@@ -1,0 +1,7 @@
+package com.campuslink.domain.model
+
+enum class ErrorType {
+    CONNECTION_FAILED, MESSAGE_EXPIRED, TTL_EXCEEDED,
+    ACK_TIMEOUT, UNKNOWN_USER, QUEUE_FULL,
+    BLE_UNAVAILABLE, PERMISSION_DENIED
+}

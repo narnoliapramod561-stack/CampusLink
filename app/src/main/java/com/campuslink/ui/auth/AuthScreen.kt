@@ -41,6 +41,21 @@ fun AuthScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
+    // ── BUG B3 FIX ────────────────────────────────────────────────────────
+    // Once the session check completes, navigate immediately to Home
+    // if the user already registered in a previous session.
+    // Without this, every app launch shows the auth screen — extremely
+    // annoying during the demo when relaunching the app between tests.
+    // ──────────────────────────────────────────────────────────────────────
+    LaunchedEffect(state.sessionChecked, state.alreadyLoggedIn) {
+        if (state.sessionChecked && state.alreadyLoggedIn) {
+            navController.navigate("home") {
+                popUpTo("auth") { inclusive = true }
+            }
+        }
+    }
+
+    // Navigate after fresh registration
     LaunchedEffect(state.isSuccess) {
         if (state.isSuccess) {
             navController.navigate("home") {
@@ -49,6 +64,30 @@ fun AuthScreen(
         }
     }
 
+    // Show a blank loading screen while checking session (avoids auth flash)
+    if (!state.sessionChecked) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A1628)),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = Color(0xFF0F766E))
+        }
+        return
+    }
+
+    // If already logged in, show blank screen while LaunchedEffect navigates
+    if (state.alreadyLoggedIn) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A1628))
+        )
+        return
+    }
+
+    // ── Registration form (shown only when not logged in) ─────────────────
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +104,6 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo
             Text(
                 text = "📡",
                 fontSize = 64.sp,

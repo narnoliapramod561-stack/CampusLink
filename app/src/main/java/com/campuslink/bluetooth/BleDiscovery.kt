@@ -6,7 +6,9 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.os.ParcelUuid
 import com.campuslink.core.CampusLog
 import com.campuslink.domain.model.ConnectionEvent
@@ -31,13 +33,17 @@ class BleDiscovery @Inject constructor(
     private var scanCallback: ScanCallback? = null
     private var leScanner: BluetoothLeScanner? = null
 
-    // Encode BT Classic MAC into BLE Service UUID
+    // ── BUG B1 FIX ────────────────────────────────────────────────────────
+    // MAC without colons = exactly 12 hex chars (e.g. "AABBCCDDEEFF")
+    // We fit all 12 chars into the first 3 UUID segments (4+4+4 = 12 chars)
+    // Last two segments are fixed zeros so they don't interfere with decoding
+    // ──────────────────────────────────────────────────────────────────────
     fun encodeMacToUUID(adapter: BluetoothAdapter): UUID {
         return try {
-            val mac = adapter.address.replace(":", "")  // e.g. "AABBCCDDEEFF"
+            val mac = adapter.address.replace(":", "")   // exactly 12 chars
             UUID.fromString(
                 "0000${mac.substring(0, 4)}-${mac.substring(4, 8)}-" +
-                "${mac.substring(8, 12)}-${mac.substring(12, 16)}-${mac.substring(16)}0000"
+                "${mac.substring(8, 12)}-0000-000000000000"
             )
         } catch (e: Exception) {
             CampusLog.e("BLE", "Failed to encode MAC to UUID: ${e.message}")
@@ -45,9 +51,9 @@ class BleDiscovery @Inject constructor(
         }
     }
 
-    // Decode BT Classic MAC from Service UUID
+    // Decode: extract chars 4..16 from the clean UUID string = 12 hex chars = MAC
     fun decodeMacFromUUID(uuid: UUID): String {
-        val clean = uuid.toString().replace("-", "")
+        val clean = uuid.toString().replace("-", "")     // 32 hex chars
         return clean.substring(4, 16).chunked(2).joinToString(":")
     }
 
@@ -104,17 +110,30 @@ class BleDiscovery @Inject constructor(
             return
         }
 
+        // ── BUG M3 FIX ────────────────────────────────────────────────────
+        // Filter to only CampusLink UUIDs (start with "0000") to avoid
+        // processing every BLE device on campus (earbuds, watches, etc.)
+        // We use a loose prefix filter — any UUID starting with "0000" is ours
+        // ──────────────────────────────────────────────────────────────────
+        val scanSettings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
         scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 result.scanRecord?.serviceUuids?.forEach { parcelUuid ->
                     try {
+                        val uuidStr = parcelUuid.uuid.toString()
+                        // Only process UUIDs that match our encoding pattern
+                        if (!uuidStr.endsWith("-0000-000000000000")) return@forEach
+
                         val mac = decodeMacFromUUID(parcelUuid.uuid)
                         if (mac != bluetoothAdapter.address) {
-                            CampusLog.d("BLE", "Discovered peer MAC: $mac")
+                            CampusLog.d("BLE", "Discovered CampusLink peer MAC: $mac")
                             _discoveredMacs.tryEmit(mac)
                         }
                     } catch (e: Exception) {
-                        // Not a CampusLink UUID, ignore
+                        // Not a CampusLink UUID, ignore silently
                     }
                 }
             }
@@ -126,7 +145,7 @@ class BleDiscovery @Inject constructor(
         }
 
         try {
-            leScanner?.startScan(scanCallback!!)
+            leScanner?.startScan(null, scanSettings, scanCallback!!)
             CampusLog.d("BLE", "BLE scan started")
         } catch (e: SecurityException) {
             CampusLog.e("BLE", "SecurityException on scan: ${e.message}")

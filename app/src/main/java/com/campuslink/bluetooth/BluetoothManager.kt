@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,8 +32,16 @@ class BluetoothManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
 
+    // ConcurrentHashMap for thread-safe peer tracking
     private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>()
-    private val connectedAddresses = mutableSetOf<String>()
+
+    // ── BUG B4 FIX ────────────────────────────────────────────────────────
+    // mutableSetOf<String>() is NOT thread-safe.
+    // BLE discovery callback and connect/disconnect callbacks run on
+    // different IO threads concurrently → ConcurrentModificationException risk.
+    // ConcurrentHashMap.newKeySet() is a proper concurrent set backed by CHM.
+    // ──────────────────────────────────────────────────────────────────────
+    private val connectedAddresses: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -49,8 +56,11 @@ class BluetoothManager @Inject constructor(
 
     fun start() {
         scope.launch {
-            myUserId = sessionManager.getUserId() ?: return@launch
-            myUsername = sessionManager.getUsername() ?: return@launch
+            myUserId = sessionManager.getUserId() ?: run {
+                CampusLog.e("BTManager", "No user session found — cannot start")
+                return@launch
+            }
+            myUsername = sessionManager.getUsername() ?: myUserId
             relayEngine.myUserId = myUserId
 
             _isRunning.value = true
@@ -71,7 +81,7 @@ class BluetoothManager @Inject constructor(
                 }
             }
 
-            // Start RFCOMM server
+            // Start RFCOMM server to accept incoming connections
             serverThread = ServerThread(bluetoothAdapter, scope, relayEngine) { thread ->
                 registerThread(thread)
             }
@@ -89,24 +99,41 @@ class BluetoothManager @Inject constructor(
                 registerThread(thread)
             },
             onFailed = { failedMac ->
+                // Remove from tracked set so BLE rediscovery can retry
                 connectedAddresses.remove(failedMac)
-                CampusLog.w("BTManager", "Connection failed to $failedMac, will retry on rediscovery")
+                CampusLog.w("BTManager", "Connection failed to $failedMac — will retry on rediscovery")
             }
         ).start()
     }
 
-    private fun registerThread(thread: ConnectedThread) {
-        connectedThreads[thread.deviceAddress] = thread
-        CampusLog.d("BTManager", "Registered thread for ${thread.deviceAddress}")
+    // ── BUG B2 FIX ────────────────────────────────────────────────────────
+    // The original registerThread() created ConnectedThread in ServerThread
+    // and ConnectThread with an onDisconnected lambda that only logged.
+    // BluetoothManager never cleaned up the dead thread from connectedThreads.
+    // Fix: create a NEW ConnectedThread here wrapping the accepted socket,
+    // with a proper onDisconnected lambda that removes it from the map
+    // and updates stats. This is the single authoritative place for cleanup.
+    // ──────────────────────────────────────────────────────────────────────
+    private fun registerThread(incomingThread: ConnectedThread) {
+        // Wrap with cleanup-aware disconnect callback
+        val thread = ConnectedThread(
+            socket = incomingThread.socket,
+            scope = scope,
+            relayEngine = relayEngine,
+            onDisconnected = { dead ->
+                connectedThreads.remove(dead.deviceAddress)
+                connectedAddresses.remove(dead.deviceAddress)
+                scope.launch { repository.onNodeDisconnected() }
+                CampusLog.d("BTManager", "Peer removed: ${dead.deviceAddress} | active=${connectedThreads.size}")
+            }
+        )
 
-        // Send handshake immediately after connecting
+        connectedThreads[thread.deviceAddress] = thread
+        CampusLog.d("BTManager", "Registered peer: ${thread.deviceAddress} | total=${connectedThreads.size}")
+
+        // Send identity handshake immediately after connecting
         val handshake = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address)
         thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(handshake)))
-
-        // Override disconnect callback to clean up
-        scope.launch {
-            // Thread will call onDisconnected already via ConnectedThread internals
-        }
     }
 
     fun sendMessage(msg: Message) {
@@ -115,16 +142,17 @@ class BluetoothManager @Inject constructor(
 
         scope.launch {
             if (targetThread != null) {
+                // Direct delivery — with retry
                 relayEngine.sendWithRetry(packet, targetThread)
             } else {
-                // Flood-relay to all — DTN store-and-forward
+                // Flood-relay to all connected peers (DTN broadcast)
                 val threads = connectedThreads.values.toList()
                 if (threads.isEmpty()) {
-                    CampusLog.w("BTManager", "No peers connected — storing message as PENDING")
+                    CampusLog.w("BTManager", "No peers connected — storing ${msg.messageId} as PENDING")
                     repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
                 } else {
                     threads.forEach { it.enqueue(packet) }
-                    CampusLog.d("BTManager", "Flooded message ${msg.messageId} to ${threads.size} peers")
+                    CampusLog.d("BTManager", "Flooded ${msg.messageId} to ${threads.size} peers")
                 }
             }
         }

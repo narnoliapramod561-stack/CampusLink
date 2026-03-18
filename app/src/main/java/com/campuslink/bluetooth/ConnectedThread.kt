@@ -16,6 +16,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ConnectedThread(
     val socket: BluetoothSocket,
@@ -26,7 +27,14 @@ class ConnectedThread(
     val deviceAddress: String = socket.remoteDevice.address
     var remoteUserId: String = ""
     private var lastPongTime = System.currentTimeMillis()
-    private val gson = Gson()
+
+    // ── BUG B5 FIX ────────────────────────────────────────────────────────
+    // Guard against disconnect() being called multiple times concurrently
+    // (e.g. heartbeat timeout + IOException on read firing simultaneously)
+    // Without this, onDisconnected() is called twice → double removal from
+    // connectedThreads, double onNodeDisconnected(), corrupted stats.
+    // ──────────────────────────────────────────────────────────────────────
+    private val disconnected = AtomicBoolean(false)
 
     // Channel-based send queue — prevents concurrent OutputStream corruption
     private val sendChannel = Channel<Packet>(capacity = Channel.UNLIMITED)
@@ -68,11 +76,18 @@ class ConnectedThread(
         }
     }
 
-    fun enqueue(packet: Packet) { sendChannel.trySend(packet) }
+    fun enqueue(packet: Packet) {
+        sendChannel.trySend(packet)
+    }
 
-    fun updatePongTime() { lastPongTime = System.currentTimeMillis() }
+    fun updatePongTime() {
+        lastPongTime = System.currentTimeMillis()
+    }
 
     fun disconnect() {
+        // ── B5 FIX: compareAndSet ensures this block runs exactly once ───
+        if (!disconnected.compareAndSet(false, true)) return
+
         writerJob.cancel()
         readerJob.cancel()
         heartbeatJob.cancel()

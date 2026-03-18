@@ -16,7 +16,14 @@ data class AuthUiState(
     val userId: String = "",
     val error: String? = null,
     val isLoading: Boolean = false,
-    val isSuccess: Boolean = false
+    val isSuccess: Boolean = false,
+    // ── BUG B3 FIX ────────────────────────────────────────────────────────
+    // New state: null = still checking session, true = already logged in,
+    // false = not logged in → show form. AuthScreen reads this to decide
+    // whether to navigate immediately or show the registration card.
+    // ──────────────────────────────────────────────────────────────────────
+    val sessionChecked: Boolean = false,
+    val alreadyLoggedIn: Boolean = false
 )
 
 @HiltViewModel
@@ -24,10 +31,21 @@ class AuthViewModel @Inject constructor(
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AuthUiState(
-        userId = "user_" + UUID.randomUUID().toString().take(8)
-    ))
+    private val _uiState = MutableStateFlow(
+        AuthUiState(userId = "user_" + UUID.randomUUID().toString().take(8))
+    )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    init {
+        // Check existing session immediately on ViewModel creation
+        viewModelScope.launch {
+            val loggedIn = sessionManager.isLoggedIn()
+            _uiState.value = _uiState.value.copy(
+                sessionChecked = true,
+                alreadyLoggedIn = loggedIn
+            )
+        }
+    }
 
     fun onUsernameChange(value: String) {
         _uiState.value = _uiState.value.copy(username = value, error = null)

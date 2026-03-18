@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -217,14 +218,13 @@ fun ChatScreen(
             }
 
             // Input row
-            Surface(
-                color = Color.Transparent,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(16.dp)
                     .shadow(
                         elevation = 20.dp,
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(32.dp),
                         ambientColor = Color.Black.copy(0.4f),
                         spotColor = Color.Black.copy(0.4f)
                     )
@@ -233,35 +233,47 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .glassmorphism()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
+                    androidx.compose.material3.TextField(
                         value = messageText,
                         onValueChange = viewModel::onMessageTextChange,
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Type a message...", color = Color(0xFFA89B8F)) },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0x66E89A5B),
-                            unfocusedBorderColor = Color(0x22F5E6D8),
+                        placeholder = { Text("Type here...", color = Color(0xFFA89B8F), fontSize = 15.sp) },
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
                             focusedTextColor = Color(0xFFF5E6D8),
-                            unfocusedTextColor = Color(0xFFF5E6D8)
+                            unfocusedTextColor = Color(0xFFF5E6D8),
+                            cursorColor = Color(0x66E89A5B)
                         ),
                         maxLines = 4
                     )
+                    
+                    Icon(
+                        imageVector = Icons.Default.Face, // Or any suitable icon
+                        contentDescription = "Emoji/Attach",
+                        tint = Color(0xFFA89B8F),
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(24.dp)
+                    )
+
                     IconButton(
                         onClick = viewModel::sendMessage,
                         modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(48.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color(0x66E89A5B))
+                            .background(Color(0xFF1A1410)) // Dark circle
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = Color(0xFFF5E6D8)
+                            tint = Color(0xFFF5E6D8),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }

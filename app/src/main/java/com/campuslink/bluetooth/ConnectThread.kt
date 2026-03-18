@@ -38,7 +38,7 @@ class ConnectThread(
                 }
                 
                 CampusLog.d("ConnectThread", "Successfully connected to $peerMacAddress")
-                onConnected(socket)
+                socket?.let { onConnected(it) } ?: throw IOException("Socket is null after connect")
                 
             } catch (e: Exception) {
                 CampusLog.e("ConnectThread", "All connection attempts failed to $peerMacAddress: ${e.message}")

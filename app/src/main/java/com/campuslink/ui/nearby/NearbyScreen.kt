@@ -55,7 +55,7 @@ fun NearbyScreen(
             }
             StatusBadge(
                 text = if (isRunning) "SCANNING" else "OFFLINE",
-                active = isRunning
+                isSuccess = isRunning
             )
         }
 

@@ -23,8 +23,13 @@ class RelayEngine @Inject constructor(
     var myUserId: String = ""
     var myZone: String = "BLOCK_32"
     var allThreads: () -> List<ConnectedThread> = { emptyList() }
+
+    // FIX: Reference to BluetoothManager so HANDSHAKE can call onPeerIdentified.
+    // This is set by BluetoothManager after construction (avoids circular DI).
+    var bluetoothManager: BluetoothManager? = null
+
     private val gson = Gson()
-    
+
     // LRU bounded cache — O(1) duplicate suppression
     val processedIds: MutableMap<String, Long> = Collections.synchronizedMap(
         object : LinkedHashMap<String, Long>(1000, 0.75f, true) {
@@ -34,7 +39,7 @@ class RelayEngine @Inject constructor(
         }
     )
 
-    // Route Memory cache
+    // Route memory cache
     private val routeCache = ConcurrentHashMap<String, RouteMemory>()
 
     fun onDeliverySuccess(receiverId: String, viaUserId: String) {
@@ -69,7 +74,7 @@ class RelayEngine @Inject constructor(
     }
 
     private fun appendPath(existing: String, userId: String): String {
-        val list = if (existing.isEmpty()) mutableListOf<String>()
+        val list = if (existing.isEmpty()) mutableListOf()
                    else gson.fromJson(existing, Array<String>::class.java).toMutableList()
         if (!list.contains(userId)) list.add(userId)
         return gson.toJson(list)
@@ -84,11 +89,12 @@ class RelayEngine @Inject constructor(
 
     fun onPacketReceived(packet: Packet, fromThread: ConnectedThread) {
         when (packet.type) {
+
             PacketType.MESSAGE.name -> {
                 val msg = gson.fromJson(packet.payload, Message::class.java)
-                
+
                 if (processedIds.containsKey(msg.messageId)) {
-                    CampusLog.d("Relay", "Dup: ${msg.messageId}"); return
+                    CampusLog.d("Relay", "Dup dropped: ${msg.messageId}"); return
                 }
                 if (System.currentTimeMillis() > msg.expiry) {
                     CampusLog.w("Relay", "Expired: ${msg.messageId}"); return
@@ -97,7 +103,7 @@ class RelayEngine @Inject constructor(
                     CampusLog.w("Relay", "TTL=0: ${msg.messageId}"); return
                 }
                 if (isLooping(msg.pathHistory, myUserId)) {
-                    CampusLog.d("Relay", "Loop detected, dropping: ${msg.messageId}"); return
+                    CampusLog.d("Relay", "Loop detected: ${msg.messageId}"); return
                 }
 
                 processedIds[msg.messageId] = System.currentTimeMillis()
@@ -105,86 +111,86 @@ class RelayEngine @Inject constructor(
                 when (msg.targetType) {
                     MessageTargetType.BROADCAST.name -> {
                         scope.launch { repository.saveMessage(msg.copy(status = MessageStatus.DELIVERED.name)) }
-                        val relay = msg.copy(ttl = msg.ttl - 1, hopCount = msg.hopCount + 1, pathHistory = appendPath(msg.pathHistory, myUserId))
-                        if (relay.ttl > 0) {
-                            val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(relay))
-                            allThreads().filter { it != fromThread }.forEach { it.enqueue(pkt) }
-                            scope.launch { repository.incrementRelayCount(myUserId) }
-                        }
+                        relay(msg, fromThread)
                         return
                     }
                     MessageTargetType.ZONE.name -> {
                         if (myZone == msg.receiverId) {
                             scope.launch { repository.saveMessage(msg.copy(status = MessageStatus.DELIVERED.name)) }
                         }
-                        val relay = msg.copy(ttl = msg.ttl - 1, hopCount = msg.hopCount + 1, pathHistory = appendPath(msg.pathHistory, myUserId))
-                        if (relay.ttl > 0) {
-                            val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(relay))
-                            allThreads().filter { it != fromThread }.forEach { it.enqueue(pkt) }
-                            scope.launch { repository.incrementRelayCount(myUserId) }
-                        }
+                        relay(msg, fromThread)
                         return
                     }
                     MessageTargetType.GROUP.name -> {
                         scope.launch {
                             val group = repository.getGroupById(msg.groupId)
                             if (group != null) {
-                                val members = try { gson.fromJson(group.memberIds, Array<String>::class.java).toList() }
-                                              catch (_: Exception) { emptyList() }
+                                val members = try {
+                                    gson.fromJson(group.memberIds, Array<String>::class.java).toList()
+                                } catch (_: Exception) { emptyList() }
                                 if (myUserId in members) {
                                     repository.saveMessage(msg.copy(status = MessageStatus.DELIVERED.name))
                                 }
                             }
-                            val relay = msg.copy(ttl = msg.ttl - 1, hopCount = msg.hopCount + 1, pathHistory = appendPath(msg.pathHistory, myUserId))
-                            if (relay.ttl > 0) {
-                                val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(relay))
-                                allThreads().filter { it != fromThread }.forEach { it.enqueue(pkt) }
-                                repository.incrementRelayCount(myUserId)
-                            }
                         }
+                        relay(msg, fromThread)
                         return
                     }
                 }
 
+                // USER type
                 if (msg.receiverId == myUserId) {
-                    CampusLog.d("Relay", "Delivering: ${msg.messageId} hops=${msg.hopCount}")
+                    CampusLog.d("Relay", "Delivering to me: ${msg.messageId} hops=${msg.hopCount}")
                     scope.launch {
                         repository.saveMessage(msg.copy(status = MessageStatus.DELIVERED.name))
                         repository.logDelivery(msg, success = true)
                     }
                     ackHandler.sendAck(fromThread, msg)
                 } else {
-                    val relay = msg.copy(ttl = msg.ttl - 1, hopCount = msg.hopCount + 1, pathHistory = appendPath(msg.pathHistory, myUserId))
-                    val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(relay))
-                    CampusLog.d("Relay", "Forwarding ${msg.messageId} ttl=${relay.ttl}")
-                    allThreads().filter { it != fromThread }.forEach { it.enqueue(pkt) }
-                    scope.launch { 
-                        repository.onMessageRelayed(relay.hopCount) 
-                        repository.incrementRelayCount(myUserId)
-                    }
+                    relay(msg, fromThread)
                 }
             }
+
             PacketType.ACK.name -> {
                 val ack = gson.fromJson(packet.payload, AckPayload::class.java)
-                val viaUserId = fromThread.remoteUserId
                 if (ack.originalSenderId == myUserId) {
-                    CampusLog.d("ACK", "Delivered: ${ack.messageId}")
+                    CampusLog.d("ACK", "Delivery confirmed: ${ack.messageId}")
                     scope.launch { repository.updateMessageStatus(ack.messageId, MessageStatus.DELIVERED.name) }
+                    val viaUserId = fromThread.remoteUserId
                     if (viaUserId.isNotBlank()) onDeliverySuccess(ack.receiverUserId, viaUserId)
                 } else {
                     allThreads().filter { it != fromThread }.forEach { it.enqueue(packet) }
-                    if (viaUserId.isNotBlank()) onDeliverySuccess(ack.receiverUserId, viaUserId)
                 }
             }
+
             PacketType.PING.name -> fromThread.enqueue(Packet(PacketType.PONG.name, ""))
-            PacketType.PONG.name -> { fromThread.updatePongTime(); CampusLog.d("Heartbeat", "PONG ${fromThread.deviceAddress}") }
+
+            PacketType.PONG.name -> {
+                fromThread.updatePongTime()
+                CampusLog.d("Heartbeat", "PONG from ${fromThread.deviceAddress}")
+            }
+
             PacketType.HANDSHAKE.name -> {
                 val hs = gson.fromJson(packet.payload, HandshakePayload::class.java)
+                CampusLog.d("RFCOMM", "Handshake received: ${hs.username} @${hs.userId} zone=${hs.zone}")
+
+                // FIX: Tell BluetoothManager we now know this socket's userId.
+                // This updates the live connectedUserIds set → peer appears in Nearby immediately.
                 fromThread.remoteUserId = hs.userId
-                CampusLog.d("RFCOMM", "Handshake: ${hs.username} @${hs.userId}")
+                bluetoothManager?.onPeerIdentified(fromThread.deviceAddress, hs.userId)
+
                 scope.launch {
-                    repository.upsertUser(User(hs.userId, hs.username, hs.deviceAddress, true, 
-                                               zone=hs.zone, role=hs.role, department=hs.department))
+                    repository.upsertUser(
+                        User(
+                            userId        = hs.userId,
+                            username      = hs.username,
+                            deviceAddress = hs.deviceAddress,
+                            isOnline      = true,
+                            zone          = hs.zone,
+                            role          = hs.role,
+                            department    = hs.department
+                        )
+                    )
                     repository.onNodeConnected()
                     flushPending(hs.userId, fromThread)
                 }
@@ -192,22 +198,36 @@ class RelayEngine @Inject constructor(
         }
     }
 
+    private fun relay(msg: Message, fromThread: ConnectedThread) {
+        val relayed = msg.copy(
+            ttl         = msg.ttl - 1,
+            hopCount    = msg.hopCount + 1,
+            pathHistory = appendPath(msg.pathHistory, myUserId)
+        )
+        if (relayed.ttl <= 0) return
+        val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(relayed))
+        CampusLog.d("Relay", "Forwarding ${msg.messageId} ttl=${relayed.ttl} to ${allThreads().size - 1} peers")
+        allThreads().filter { it != fromThread }.forEach { it.enqueue(pkt) }
+        scope.launch { repository.onMessageRelayed(relayed.hopCount) }
+    }
+
     suspend fun sendWithRetry(packet: Packet, target: ConnectedThread?) {
         Constants.RETRY_DELAYS_MS.forEachIndexed { i, ms ->
-            try { 
+            try {
                 target?.enqueue(packet) ?: throw IOException("No thread")
-                return 
+                return
+            } catch (e: IOException) {
+                CampusLog.w("Retry", "Attempt ${i + 1} failed"); delay(ms)
             }
-            catch (e: IOException) { CampusLog.w("Retry", "Attempt ${i+1}"); delay(ms) }
         }
-        CampusLog.e("Retry", "Exhausted — PENDING")
+        CampusLog.e("Retry", "All retries exhausted — storing as PENDING")
         val msg = gson.fromJson(packet.payload, Message::class.java)
         repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
     }
 
     private suspend fun flushPending(userId: String, thread: ConnectedThread) {
         val pending = repository.getPendingMessagesFor(userId)
-        CampusLog.d("StoreForward", "Flushing ${pending.size} for $userId")
+        CampusLog.d("StoreForward", "Flushing ${pending.size} pending messages for $userId")
         pending.forEach { thread.enqueue(Packet(PacketType.MESSAGE.name, gson.toJson(it))) }
     }
 }

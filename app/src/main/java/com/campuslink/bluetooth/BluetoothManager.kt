@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,20 +35,24 @@ class BluetoothManager @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
-    private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>()
+    private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>() // key = MAC address
     private val connectedAddresses: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-    private var serverThread: ServerThread? = null
 
+    // FIX: Expose the set of currently connected userIds so NearbyViewModel
+    // can show ONLY users who are physically in range right now, not stale DB rows.
+    private val _connectedUserIds = MutableStateFlow<Set<String>>(emptySet())
+    val connectedUserIds: StateFlow<Set<String>> = _connectedUserIds.asStateFlow()
+
+    private var serverThread: ServerThread? = null
     private var myUserId = ""
     private var myUsername = ""
     private var myZone = "BLOCK_32"
     private var myRole = "STUDENT"
     private var myDept = ""
 
-    // FIX: Prevent double-start (HomeViewModel + ForegroundService both called start())
     private val startGuard = AtomicBoolean(false)
 
     init {
@@ -78,14 +83,13 @@ class BluetoothManager @Inject constructor(
             launch {
                 bleDiscovery.discoveredMacs.collect { mac ->
                     if (!connectedAddresses.contains(mac) && mac != bluetoothAdapter.address) {
-                        CampusLog.d("BTManager", "Discovered peer: $mac")
+                        CampusLog.d("BTManager", "Discovered new peer MAC: $mac — connecting...")
                         connectedAddresses.add(mac)
                         connectTo(mac)
                     }
                 }
             }
 
-            // FIX: ServerThread now gets raw socket callback
             serverThread = ServerThread(bluetoothAdapter, scope) { socket ->
                 registerSocket(socket)
             }
@@ -94,7 +98,6 @@ class BluetoothManager @Inject constructor(
     }
 
     private fun connectTo(mac: String) {
-        // FIX: ConnectThread now gets raw socket callback
         ConnectThread(
             bluetoothAdapter = bluetoothAdapter,
             peerMacAddress = mac,
@@ -102,20 +105,16 @@ class BluetoothManager @Inject constructor(
             onConnected = { socket -> registerSocket(socket) },
             onFailed = { failedMac ->
                 connectedAddresses.remove(failedMac)
-                CampusLog.w("BTManager", "Connection failed to $failedMac")
+                CampusLog.w("BTManager", "Connection failed to $failedMac — will retry on rediscovery")
             }
         ).start()
     }
 
-    // FIX: THIS is the ONLY place ConnectedThread is ever created.
-    // Previously ServerThread made one, ConnectThread made one, and this
-    // function made another — three ConnectedThreads per socket, 3 readers
-    // fighting over one InputStream. Every single message was corrupted.
     private fun registerSocket(socket: BluetoothSocket) {
         val addr = socket.remoteDevice.address
 
         if (connectedThreads.containsKey(addr)) {
-            CampusLog.d("BTManager", "Already registered $addr — closing duplicate socket")
+            CampusLog.d("BTManager", "Already have connection to $addr — closing duplicate")
             try { socket.close() } catch (_: Exception) {}
             return
         }
@@ -127,16 +126,43 @@ class BluetoothManager @Inject constructor(
             onDisconnected = { dead ->
                 connectedThreads.remove(dead.deviceAddress)
                 connectedAddresses.remove(dead.deviceAddress)
-                scope.launch { repository.onNodeDisconnected() }
-                CampusLog.d("BTManager", "Peer left: ${dead.deviceAddress} | remaining=${connectedThreads.size}")
+
+                // FIX: Remove this user from the live connected set so they
+                // disappear from the Nearby screen immediately.
+                val disconnectedUserId = dead.remoteUserId
+                if (disconnectedUserId.isNotBlank()) {
+                    _connectedUserIds.update { it - disconnectedUserId }
+                }
+
+                scope.launch {
+                    // FIX: Mark user offline in DB so isOnline=false persists.
+                    // Without this, a user who walked away stayed "In range" forever.
+                    if (disconnectedUserId.isNotBlank()) {
+                        repository.setUserOnline(disconnectedUserId, false)
+                    }
+                    repository.onNodeDisconnected()
+                }
+                CampusLog.d("BTManager", "Peer disconnected: $addr userId=$disconnectedUserId | remaining=${connectedThreads.size}")
             }
         )
 
         connectedThreads[addr] = thread
-        CampusLog.d("BTManager", "Registered: $addr | total=${connectedThreads.size}")
+        CampusLog.d("BTManager", "Registered peer: $addr | total=${connectedThreads.size}")
 
+        // Send our identity so the peer can register us and vice versa
         val hs = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address, myZone, myRole, myDept)
         thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(hs)))
+    }
+
+    // Called from RelayEngine when a HANDSHAKE packet is received from a peer.
+    // This is the moment we learn the peer's userId from their MAC address.
+    fun onPeerIdentified(macAddress: String, userId: String) {
+        val thread = connectedThreads[macAddress] ?: return
+        thread.remoteUserId = userId
+
+        // FIX: Add to live connected set — this makes them appear in Nearby immediately
+        _connectedUserIds.update { it + userId }
+        CampusLog.d("BTManager", "Peer identified: $macAddress → $userId | online set: ${_connectedUserIds.value}")
     }
 
     fun sendMessage(msg: Message) {
@@ -148,11 +174,17 @@ class BluetoothManager @Inject constructor(
                 MessageTargetType.USER.name -> {
                     val target = relayEngine.getBestThread(msg.receiverId)
                     if (target != null) {
+                        CampusLog.d("BTManager", "Sending ${msg.messageId} direct to ${msg.receiverId}")
                         relayEngine.sendWithRetry(pkt, target)
                         return@launch
                     }
-                    if (threads.isEmpty()) repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
-                    else threads.forEach { it.enqueue(pkt) }
+                    if (threads.isEmpty()) {
+                        CampusLog.w("BTManager", "No peers — storing ${msg.messageId} as PENDING")
+                        repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
+                    } else {
+                        CampusLog.d("BTManager", "Flooding ${msg.messageId} to ${threads.size} peers")
+                        threads.forEach { it.enqueue(pkt) }
+                    }
                 }
                 else -> {
                     if (threads.isEmpty()) repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
@@ -165,13 +197,21 @@ class BluetoothManager @Inject constructor(
     fun stop() {
         _isRunning.value = false
         startGuard.set(false)
+        // FIX: Mark all currently connected users offline when Bluetooth stops
+        scope.launch {
+            _connectedUserIds.value.forEach { userId ->
+                repository.setUserOnline(userId, false)
+            }
+        }
+        _connectedUserIds.value = emptySet()
         bleDiscovery.stopAll()
         serverThread?.stop()
         connectedThreads.values.forEach { it.disconnect() }
         connectedThreads.clear()
         connectedAddresses.clear()
-        CampusLog.d("BTManager", "Stopped")
+        CampusLog.d("BTManager", "Stopped — all peers marked offline")
     }
 
     fun getConnectedPeerCount() = connectedThreads.size
+    fun getConnectedUserIds(): Set<String> = _connectedUserIds.value
 }

@@ -13,8 +13,7 @@ class ConnectThread(
     private val bluetoothAdapter: BluetoothAdapter,
     private val peerMacAddress: String,
     private val scope: CoroutineScope,
-    private val relayEngine: RelayEngine,
-    private val onConnected: (ConnectedThread) -> Unit,
+    private val onConnected: (BluetoothSocket) -> Unit,
     private val onFailed: (String) -> Unit
 ) {
     fun start() {
@@ -26,7 +25,7 @@ class ConnectThread(
                     .createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
                 socket.connect()
                 CampusLog.d("ConnectThread","Connected to $peerMacAddress")
-                onConnected(ConnectedThread(socket, scope, relayEngine) {})
+                onConnected(socket)
             } catch (e: IOException) {
                 CampusLog.e("ConnectThread","Failed $peerMacAddress: ${e.message}")
                 try { socket?.close() } catch (_: IOException) {}

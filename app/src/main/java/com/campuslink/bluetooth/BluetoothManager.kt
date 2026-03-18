@@ -1,6 +1,7 @@
 package com.campuslink.bluetooth
 
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothSocket
 import com.campuslink.core.CampusLog
 import com.campuslink.data.repository.ChatRepository
 import com.campuslink.data.session.SessionManager
@@ -63,21 +64,21 @@ class BluetoothManager @Inject constructor(
                     connectedAddresses.add(mac); connectTo(mac)
                 }
             }}
-            serverThread = ServerThread(bluetoothAdapter, scope, relayEngine) { registerThread(it) }
+            serverThread = ServerThread(bluetoothAdapter, scope) { registerThread(it) }
             serverThread?.start()
             CampusLog.d("BTManager","Started userId=$myUserId")
         }
     }
 
     private fun connectTo(mac: String) {
-        ConnectThread(bluetoothAdapter, mac, scope, relayEngine,
+        ConnectThread(bluetoothAdapter, mac, scope,
             onConnected = { registerThread(it) },
             onFailed = { connectedAddresses.remove(it) }
         ).start()
     }
 
-    private fun registerThread(incoming: ConnectedThread) {
-        val thread = ConnectedThread(incoming.socket, scope, relayEngine) { dead ->
+    private fun registerThread(socket: BluetoothSocket) {
+        val thread = ConnectedThread(socket, scope, relayEngine) { dead ->
             connectedThreads.remove(dead.deviceAddress)
             connectedAddresses.remove(dead.deviceAddress)
             scope.launch { repository.onNodeDisconnected() }

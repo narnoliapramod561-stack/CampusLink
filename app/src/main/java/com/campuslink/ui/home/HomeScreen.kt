@@ -1,46 +1,28 @@
 package com.campuslink.ui.home
 
+import androidx.compose.animation.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,6 +40,7 @@ fun HomeScreen(
     val stats by viewModel.networkStats.collectAsState()
     val isRunning by viewModel.isBluetoothRunning.collectAsState()
     val myId by viewModel.myUserId.collectAsState()
+    val simState by viewModel.simState.collectAsState()
 
     val otherUsers = users.filter { it.userId != myId }
 
@@ -96,6 +79,11 @@ fun HomeScreen(
             // Stats row
             StatsRow(stats, modifier = Modifier.padding(16.dp))
 
+            // --- SIMULATION DEMO SECTION ---
+            RelayDemoSection(simState, viewModel::startRelayDemo)
+            
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = "Nearby Students",
                 fontWeight = FontWeight.SemiBold,
@@ -104,7 +92,7 @@ fun HomeScreen(
                 color = Color(0xFF0F172A)
             )
 
-            if (otherUsers.isEmpty()) {
+            if (otherUsers.isEmpty() && !simState.isRunning) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -117,7 +105,7 @@ fun HomeScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    contentPadding = PaddingValues(
                         horizontal = 16.dp, vertical = 8.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -128,6 +116,121 @@ fun HomeScreen(
                         })
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun RelayDemoSection(state: SimState, onStart: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF1B3A6B), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Multi-Hop Relay Demo", fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                Spacer(modifier = Modifier.weight(1f))
+                if (!state.isRunning) {
+                    TextButton(onClick = onStart) {
+                        Text("Start Simulation", color = Color(0xFF1B3A6B), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Visualizer Canvas
+            RelayVisualizer(state)
+
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            val statusText = when {
+                !state.isRunning -> "Press Start to see A ➔ B ➔ C ➔ D relay"
+                state.isAck -> "D ➔ C ➔ B ➔ A: Sending ACK back..."
+                else -> "${state.activeNode} ➔ Next: Forwarding message..."
+            }
+            Text(
+                text = statusText,
+                fontSize = 12.sp,
+                color = if (state.isRunning) Color(0xFF1B3A6B) else Color(0xFF64748B),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+fun RelayVisualizer(state: SimState) {
+    val nodeColor = Color(0xFFE2E8F0)
+    val activeColor = Color(0xFF1B3A6B)
+    val packetColor = if (state.isAck) Color(0xFF16A34A) else Color(0xFF7C3AED)
+
+    Box(modifier = Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
+            val width = size.width
+            val centerY = size.height / 2
+            
+            // Draw Lines
+            drawLine(
+                color = nodeColor,
+                start = Offset(0f, centerY),
+                end = Offset(width, centerY),
+                strokeWidth = 2.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+            )
+
+            // Draw Nodes A, B, C, D
+            val nodes = listOf(0f, 0.33f, 0.66f, 1.0f)
+            val labels = listOf("A", "B", "C", "D")
+            
+            nodes.forEachIndexed { index, pos ->
+                val x = pos * width
+                val isActive = when(index) {
+                    0 -> state.activeNode == SimNode.A
+                    1 -> state.activeNode == SimNode.B
+                    2 -> state.activeNode == SimNode.C
+                    3 -> state.activeNode == SimNode.D
+                    else -> false
+                }
+                
+                drawCircle(
+                    color = if (isActive) activeColor else nodeColor,
+                    radius = 12.dp.toPx(),
+                    center = Offset(x, centerY)
+                )
+                
+                // Text labels would normally need native canvas access or separate Box, 
+                // but we'll stick to a simple circle visual for the nodes.
+            }
+
+            // Draw Packet during animation
+            if (state.isRunning && state.packetPos >= 0) {
+                drawCircle(
+                    color = packetColor,
+                    radius = 8.dp.toPx(),
+                    center = Offset(state.packetPos * width, centerY)
+                )
+            }
+        }
+        
+        // Overlay node labels
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp - 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            listOf("A", "B", "C", "D").forEach { label ->
+                Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
             }
         }
     }

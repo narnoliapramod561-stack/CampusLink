@@ -59,6 +59,14 @@ class ChatViewModel @Inject constructor(
         _messageText.value = value
     }
 
+    // --- SIMULATION LAYER ---
+    var simulationMode = true
+    private val simA = com.campuslink.simulation.VirtualDevice("A")
+    private val simB = com.campuslink.simulation.VirtualDevice("B")
+    private val simC = com.campuslink.simulation.VirtualDevice("C")
+    private val simD = com.campuslink.simulation.VirtualDevice("D")
+    // ------------------------
+
     fun sendMessage() {
         val content = _messageText.value.trim()
         if (content.isBlank()) return
@@ -66,6 +74,13 @@ class ChatViewModel @Inject constructor(
         if (myId.isBlank()) return
 
         _messageText.value = ""
+
+        if (simulationMode) {
+            android.util.Log.d("Sim", "Starting Simulation from Chat UI")
+            // A sends to D through B and C
+            simA.sendMessage("D", content)
+            return
+        }
 
         val message = Message(
             messageId = UUID.randomUUID().toString(),

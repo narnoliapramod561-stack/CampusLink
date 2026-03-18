@@ -32,9 +32,7 @@ fun AnalyticsScreen(navController: NavHostController, viewModel: AnalyticsViewMo
     val stats by viewModel.stats.collectAsState()
     val logs by viewModel.logs.collectAsState()
 
-    // Assuming we could get these from viewModel, but Mocking/aggregating here for brevity
-    // In a real app, these would come from AnalyticsViewModel mapping ChatRepository state.
-    
+
     Column(Modifier.fillMaxSize().background(CL.BgDeep)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Network Intelligence", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)

@@ -214,7 +214,10 @@ class RelayEngine @Inject constructor(
     suspend fun sendWithRetry(packet: Packet, target: ConnectedThread?) {
         Constants.RETRY_DELAYS_MS.forEachIndexed { i, ms ->
             try {
-                target?.enqueue(packet) ?: throw IOException("No thread")
+                // FIX: Check Boolean result — trySend() on a closed channel returns false
+                // without throwing, so retries never triggered and PENDING was never set.
+                val success = target?.enqueue(packet) ?: false
+                if (!success) throw IOException("Channel full or closed")
                 return
             } catch (e: IOException) {
                 CampusLog.w("Retry", "Attempt ${i + 1} failed"); delay(ms)

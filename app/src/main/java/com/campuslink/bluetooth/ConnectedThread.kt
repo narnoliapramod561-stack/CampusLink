@@ -43,13 +43,16 @@ class ConnectedThread(
     private val heartbeatJob = scope.launch(Dispatchers.IO) {
         while (isActive) {
             delay(Constants.HEARTBEAT_INTERVAL_MS)
-            enqueue(Packet(PacketType.PING.name, ""))
+            enqueue(Packet(PacketType.PING.name, "")) // return ignored — timeout handles dead peers
             if (System.currentTimeMillis() - lastPongTime > Constants.HEARTBEAT_TIMEOUT_MS) {
                 CampusLog.w("Heartbeat","Timeout $deviceAddress"); disconnect(); break
             }
         }
     }
-    fun enqueue(packet: Packet) { sendChannel.trySend(packet) }
+    // FIX: Return Boolean so RelayEngine knows when the channel is closed/full.
+    // Old: fun enqueue(packet: Packet) — trySend result was silently discarded.
+    // New: caller checks the return value and can trigger PENDING routing.
+    fun enqueue(packet: Packet): Boolean { return sendChannel.trySend(packet).isSuccess }
     fun updatePongTime() { lastPongTime = System.currentTimeMillis() }
     fun disconnect() {
         if (!disconnected.compareAndSet(false, true)) return

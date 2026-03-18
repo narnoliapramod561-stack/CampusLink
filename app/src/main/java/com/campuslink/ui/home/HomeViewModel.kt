@@ -58,12 +58,12 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             _myUserId.value = sessionManager.getUserId() ?: ""
-            // FIX: REMOVED bluetoothManager.start() from here.
-            // ForegroundService (started by MainActivity) is the only place
-            // that calls start(). Having HomeViewModel also call it created:
-            //   - two ServerThreads on the same RFCOMM UUID (port conflict)
-            //   - double BLE advertising (Android rejects the second advertise)
-            //   - race conditions between the two start sequences
+            // FIX: Start the network engine once user is confirmed logged in.
+            // BluetoothManager's AtomicBoolean start guard prevents any double-start
+            // bugs if the ForegroundService also calls start() — second call is a no-op.
+            if (_myUserId.value.isNotBlank()) {
+                bluetoothManager.start()
+            }
         }
     }
 

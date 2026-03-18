@@ -77,15 +77,26 @@ class BluetoothManager @Inject constructor(
 
             CampusLog.d("BTManager", "Starting — userId=$myUserId zone=$myZone")
 
-            bleDiscovery.startAdvertising()
+            // Pass the userId to the new advertising method
+            bleDiscovery.startAdvertising(myUserId)
             bleDiscovery.startScanning()
 
             launch {
-                bleDiscovery.discoveredMacs.collect { mac ->
-                    if (!connectedAddresses.contains(mac) && mac != bluetoothAdapter.address) {
-                        CampusLog.d("BTManager", "Discovered new peer MAC: $mac — connecting...")
-                        connectedAddresses.add(mac)
-                        connectTo(mac)
+                bleDiscovery.discoveredPeers.collect { peer ->
+                    if (!connectedAddresses.contains(peer.mac)) {
+                        CampusLog.d("BTManager", "Discovered peer: ${peer.userId} at ${peer.mac}")
+                        connectedAddresses.add(peer.mac)
+                        
+                        // 1. Immediately push them to the UI so you get the "Option to Connect"
+                        repository.upsertUser(com.campuslink.domain.model.User(
+                            userId = peer.userId,
+                            username = "Discovered Device", // This will be overwritten with their real name upon Handshake
+                            deviceAddress = peer.mac,
+                            isOnline = false // False means they are discovered but not yet handshaked
+                        ))
+
+                        // 2. Attempt the background connection
+                        connectTo(peer.mac)
                     }
                 }
             }

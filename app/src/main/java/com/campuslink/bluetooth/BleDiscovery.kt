@@ -12,23 +12,25 @@ import kotlinx.coroutines.flow.SharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// New data class to hold the extracted BLE data
+data class DiscoveredPeer(val mac: String, val userId: String)
+
 @Singleton
 class BleDiscovery @Inject constructor(private val bluetoothAdapter: BluetoothAdapter) {
-    private val _discoveredMacs = MutableSharedFlow<String>(extraBufferCapacity = 64)
-    val discoveredMacs: SharedFlow<String> = _discoveredMacs
+    private val _discoveredPeers = MutableSharedFlow<DiscoveredPeer>(extraBufferCapacity = 64)
+    val discoveredPeers: SharedFlow<DiscoveredPeer> = _discoveredPeers
+    
     private val _events = MutableSharedFlow<ConnectionEvent>(extraBufferCapacity = 32)
     val events: SharedFlow<ConnectionEvent> = _events
-
+    
     private var advertiseCallback: AdvertiseCallback? = null
     private var scanCallback: ScanCallback? = null
     private var leScanner: BluetoothLeScanner? = null
 
-    fun startAdvertising() {
+    // Now accepts myUserId so it can be broadcasted in the beacon
+    fun startAdvertising(myUserId: String) {
         if (!bluetoothAdapter.isEnabled) return
-        val advertiser = bluetoothAdapter.bluetoothLeAdvertiser ?: run {
-            _events.tryEmit(ConnectionEvent.Error(ErrorType.BLE_UNAVAILABLE, "No advertiser"))
-            return
-        }
+        val advertiser = bluetoothAdapter.bluetoothLeAdvertiser ?: return
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -36,55 +38,48 @@ class BleDiscovery @Inject constructor(private val bluetoothAdapter: BluetoothAd
             .setTimeout(0)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build()
-
-        // FIX: Use the app's constant UUID so peers know this is CampusLink.
-        // Removed the adapter.address encoding hack — adapter.address always returns
-        // 02:00:00:00:00:00 on Android 6+ for privacy, causing all connections to fail.
+            
+        // Inject the userId into the BLE payload (Max 20 bytes)
+        val userIdBytes = myUserId.toByteArray(Charsets.UTF_8)
         val data = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Constants.MY_APP_UUID))
+            .addServiceData(ParcelUuid(Constants.MY_APP_UUID), userIdBytes)
             .setIncludeDeviceName(false)
             .build()
-
+            
         advertiseCallback = object : AdvertiseCallback() {
-            override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) =
-                CampusLog.d("BLE", "Advertising CampusLink Presence")
-            override fun onStartFailure(code: Int) {
-                CampusLog.e("BLE", "Advertise failed code=$code")
-                _events.tryEmit(ConnectionEvent.Error(ErrorType.BLE_UNAVAILABLE, "code=$code"))
-            }
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) = CampusLog.d("BLE", "Advertising CampusLink Presence")
+            override fun onStartFailure(code: Int) = CampusLog.e("BLE", "Advertise failed code=$code")
         }
         try { advertiser.startAdvertising(settings, data, advertiseCallback!!) }
-        catch (e: SecurityException) { _events.tryEmit(ConnectionEvent.Error(ErrorType.PERMISSION_DENIED, e.message ?: "")) }
+        catch (e: Exception) { CampusLog.e("BLE", "Adv Error: ${e.message}") }
     }
 
     fun startScanning() {
-        leScanner = bluetoothAdapter.bluetoothLeScanner ?: run {
-            _events.tryEmit(ConnectionEvent.Error(ErrorType.BLE_UNAVAILABLE, "No scanner"))
-            return
-        }
-
-        // FIX: Filter only for devices broadcasting the CampusLink UUID.
-        // Real MAC is extracted directly from ScanResult.device.address — no UUID encoding tricks.
+        leScanner = bluetoothAdapter.bluetoothLeScanner ?: return
+        
+        // Only wake up for devices broadcasting the CampusLink UUID
         val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(Constants.MY_APP_UUID)).build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-
+        
         scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val mac = result.device.address
                 if (mac != bluetoothAdapter.address) {
-                    _discoveredMacs.tryEmit(mac)
+                    // Extract the userId from the payload so we can show them in the UI instantly
+                    val serviceData = result.scanRecord?.getServiceData(ParcelUuid(Constants.MY_APP_UUID))
+                    val peerUserId = serviceData?.let { String(it, Charsets.UTF_8) } ?: "UnknownPeer"
+                    
+                    _discoveredPeers.tryEmit(DiscoveredPeer(mac, peerUserId))
                 }
             }
-            override fun onScanFailed(code: Int) {
-                CampusLog.e("BLE", "Scan failed code=$code")
-                _events.tryEmit(ConnectionEvent.Error(ErrorType.BLE_UNAVAILABLE, "Scan code=$code"))
-            }
+            override fun onScanFailed(code: Int) = CampusLog.e("BLE", "Scan failed code=$code")
         }
-        try {
+        try { 
             leScanner?.startScan(listOf(filter), settings, scanCallback!!)
-            CampusLog.d("BLE", "Scan started")
+            CampusLog.d("BLE", "Scan started") 
         }
-        catch (e: SecurityException) { _events.tryEmit(ConnectionEvent.Error(ErrorType.PERMISSION_DENIED, e.message ?: "")) }
+        catch (e: Exception) { CampusLog.e("BLE", "Scan Error: ${e.message}") }
     }
 
     fun stopAll() {

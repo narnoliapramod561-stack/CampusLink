@@ -23,12 +23,25 @@ class ConnectThread(
             try {
                 bluetoothAdapter.cancelDiscovery()
                 val device = bluetoothAdapter.getRemoteDevice(peerMacAddress)
-                socket = device.createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
-                socket.connect()
-                CampusLog.d("ConnectThread", "Connected to $peerMacAddress")
+                
+                try {
+                    // Attempt 1: Standard Service Record Connection
+                    socket = device.createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
+                    socket.connect()
+                } catch (e: IOException) {
+                    CampusLog.w("ConnectThread", "Standard connect failed, attempting reflection fallback...")
+                    
+                    // Attempt 2: Reflection Fallback (Bypasses OS BLE-to-Classic MAC routing blocks)
+                    val method = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+                    socket = method.invoke(device, 1) as BluetoothSocket
+                    socket.connect()
+                }
+                
+                CampusLog.d("ConnectThread", "Successfully connected to $peerMacAddress")
                 onConnected(socket)
-            } catch (e: IOException) {
-                CampusLog.e("ConnectThread", "Failed to connect to $peerMacAddress: ${e.message}")
+                
+            } catch (e: Exception) {
+                CampusLog.e("ConnectThread", "All connection attempts failed to $peerMacAddress: ${e.message}")
                 try { socket?.close() } catch (_: IOException) {}
                 onFailed(peerMacAddress)
             }

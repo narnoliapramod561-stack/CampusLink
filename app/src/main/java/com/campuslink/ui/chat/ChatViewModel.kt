@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -33,6 +34,25 @@ class ChatViewModel @Inject constructor(
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+
+    // --- REALTIME NETWORK BINDINGS ---
+    val networkStats = repository.networkStats
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.campuslink.domain.model.NetworkStats())
+
+    val isConnected = networkStats.map { it.activeNodes > 0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val activeNodes = networkStats.map { it.activeNodes }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val connectionPath = networkStats.map { stats ->
+        val nodes = stats.activeNodes
+        when {
+            nodes == 0 -> "Searching..."
+            nodes == 1 -> "Direct Link"
+            else -> "Mesh Route ($nodes hops)"
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Searching...")
 
     init {
         viewModelScope.launch {

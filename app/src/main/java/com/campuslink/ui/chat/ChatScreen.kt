@@ -1,6 +1,12 @@
 package com.campuslink.ui.chat
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +44,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,7 +67,26 @@ fun ChatScreen(
     val myId by viewModel.myUserId.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val messageText by viewModel.messageText.collectAsState()
+    val isConnected by viewModel.isConnected.collectAsState()
+    val activeNodes by viewModel.activeNodes.collectAsState()
+    val connectionPath by viewModel.connectionPath.collectAsState()
     val listState = rememberLazyListState()
+
+    // Dynamic Glow for premium UI
+    val infinite = rememberInfiniteTransition()
+    val glowAlpha by infinite.animateFloat(
+        initialValue = 0.1f, 
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_alpha"
+    )
+
+    fun Modifier.glassmorphism() = this
+        .background(Color(0x33FFFFFF))
+        .blur(20.dp)
 
     LaunchedEffect(userId) {
         viewModel.initConversation(userId)
@@ -104,13 +131,46 @@ fun ChatScreen(
             )
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(Color(0xFF0F172A)) // Deep space background
         ) {
-            LazyColumn(
+            // Dynamic Background Glow
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF38BDF8).copy(alpha = glowAlpha))
+                    .blur(100.dp)
+            )
+
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Connection Status Bar
+                Surface(
+                    color = Color.Black.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth().glassmorphism()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isConnected) connectionPath else "Reconnecting...",
+                            color = if (isConnected) Color(0xFF34D399) else Color(0xFFF87171),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Network: $activeNodes devices",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -123,12 +183,22 @@ fun ChatScreen(
 
             // Input row
             Surface(
-                shadowElevation = 8.dp,
-                color = Color.White
+                color = Color.Transparent,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .shadow(
+                        elevation = 20.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        ambientColor = Color.Black.copy(0.4f),
+                        spotColor = Color.Black.copy(0.4f)
+                    )
+                    .glassmorphism()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(Color(0xEEFFFFFF))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -139,7 +209,7 @@ fun ChatScreen(
                         placeholder = { Text("Type a message...") },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF1B3A6B),
+                            focusedBorderColor = Color(0xFF38BDF8),
                             unfocusedBorderColor = Color(0xFFE2E8F0)
                         ),
                         maxLines = 4
@@ -150,7 +220,7 @@ fun ChatScreen(
                             .padding(start = 8.dp)
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF1B3A6B))
+                            .background(Color(0xFF38BDF8))
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
@@ -163,9 +233,15 @@ fun ChatScreen(
         }
     }
 }
+}
+
 
 @Composable
 fun MessageBubble(message: Message, isMyMessage: Boolean) {
+    val simulatedLatency = if (message.status != MessageStatus.SENDING.name && message.status != MessageStatus.PENDING.name) {
+        (message.hopCount * 32) + 15 // Mock calculation based on hops
+    } else null
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isMyMessage) Alignment.End else Alignment.Start
@@ -173,6 +249,16 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
         Box(
             modifier = Modifier
                 .widthIn(max = 280.dp)
+                .shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp, topEnd = 16.dp,
+                        bottomStart = if (isMyMessage) 16.dp else 4.dp,
+                        bottomEnd = if (isMyMessage) 4.dp else 16.dp
+                    ),
+                    ambientColor = Color.Black.copy(0.3f),
+                    spotColor = Color.Black.copy(0.3f)
+                )
                 .clip(
                     RoundedCornerShape(
                         topStart = 16.dp, topEnd = 16.dp,
@@ -181,7 +267,7 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
                     )
                 )
                 .background(
-                    if (isMyMessage) Color(0xFF1B3A6B) else Color(0xFFE2E8F0)
+                    if (isMyMessage) Color(0xFF38BDF8) else Color(0xFFFFFFFF)
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
@@ -193,28 +279,38 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
         }
 
         if (isMyMessage) {
-            Spacer(modifier = Modifier.height(2.dp))
-            val statusText = when (message.status) {
-                MessageStatus.SENDING.name -> "Sending..."
-                MessageStatus.RELAYED.name -> "Relayed • ${message.hopCount} hops"
-                MessageStatus.DELIVERED.name -> "✓ Delivered"
-                MessageStatus.PENDING.name -> "Pending"
-                MessageStatus.FAILED.name -> "Failed"
-                else -> ""
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (simulatedLatency != null) {
+                    Text(
+                        text = "Latency: ${simulatedLatency}ms • ",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 10.sp
+                    )
+                }
+                
+                val statusText = when (message.status) {
+                    MessageStatus.SENDING.name -> "Sending..."
+                    MessageStatus.RELAYED.name -> "Relayed (${message.hopCount} hops)"
+                    MessageStatus.DELIVERED.name -> "✓ Delivered"
+                    MessageStatus.PENDING.name -> "Pending"
+                    MessageStatus.FAILED.name -> "Failed"
+                    else -> ""
+                }
+                val statusColor = when (message.status) {
+                    MessageStatus.SENDING.name -> Color(0xFF94A3B8)
+                    MessageStatus.RELAYED.name -> Color(0xFFFDE047)
+                    MessageStatus.DELIVERED.name -> Color(0xFF34D399)
+                    MessageStatus.PENDING.name -> Color(0xFFF97316)
+                    else -> Color(0xFF94A3B8)
+                }
+                Text(
+                    text = statusText,
+                    color = statusColor,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
             }
-            val statusColor = when (message.status) {
-                MessageStatus.SENDING.name -> Color(0xFF94A3B8)
-                MessageStatus.RELAYED.name -> Color(0xFFD97706)
-                MessageStatus.DELIVERED.name -> Color(0xFF16A34A)
-                MessageStatus.PENDING.name -> Color(0xFFEA580C)
-                else -> Color(0xFF94A3B8)
-            }
-            Text(
-                text = statusText,
-                color = statusColor,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(end = 4.dp)
-            )
         }
     }
 }

@@ -5,27 +5,38 @@ import androidx.lifecycle.viewModelScope
 import com.campuslink.bluetooth.BluetoothManager
 import com.campuslink.data.repository.ChatRepository
 import com.campuslink.data.session.SessionManager
-import com.campuslink.domain.model.*
+import com.campuslink.domain.model.AppSettings
+import com.campuslink.domain.model.ConversationPreview
+import com.campuslink.domain.model.NetworkStats
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: ChatRepository,
     private val bluetoothManager: BluetoothManager,
     private val sessionManager: SessionManager
 ) : ViewModel() {
+
     private val _myUserId = MutableStateFlow("")
     val myUserId: StateFlow<String> = _myUserId.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val conversations: StateFlow<List<ConversationPreview>> = _myUserId
-        .flatMapLatest { id -> if (id.isBlank()) flowOf(emptyList()) else repository.getConversationPreviews(id) }
+        .flatMapLatest { id ->
+            if (id.isBlank()) flowOf(emptyList())
+            else repository.getConversationPreviews(id)
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val networkStats: StateFlow<NetworkStats> = repository.networkStats
@@ -33,28 +44,33 @@ class HomeViewModel @Inject constructor(
 
     val isBluetoothRunning: StateFlow<Boolean> = bluetoothManager.isRunning
 
-    // Manual connect dialog
     private val _showDialog = MutableStateFlow(false)
     val showDialog: StateFlow<Boolean> = _showDialog.asStateFlow()
     private val _dialogInput = MutableStateFlow("")
     val dialogInput: StateFlow<String> = _dialogInput.asStateFlow()
     private val _dialogError = MutableStateFlow<String?>(null)
     val dialogError: StateFlow<String?> = _dialogError.asStateFlow()
-    private val _navigate = MutableStateFlow<Pair<String,String>?>(null)
-    val navigate: StateFlow<Pair<String,String>?> = _navigate.asStateFlow()
-    
+    private val _navigate = MutableStateFlow<Pair<String, String>?>(null)
+    val navigate: StateFlow<Pair<String, String>?> = _navigate.asStateFlow()
+
     val settingsFlow: Flow<AppSettings> = sessionManager.settings
 
-    init { 
-        viewModelScope.launch { 
+    init {
+        viewModelScope.launch {
             _myUserId.value = sessionManager.getUserId() ?: ""
-            if (!bluetoothManager.isRunning.value) bluetoothManager.start()
-        } 
+            // FIX: REMOVED bluetoothManager.start() from here.
+            // ForegroundService (started by MainActivity) is the only place
+            // that calls start(). Having HomeViewModel also call it created:
+            //   - two ServerThreads on the same RFCOMM UUID (port conflict)
+            //   - double BLE advertising (Android rejects the second advertise)
+            //   - race conditions between the two start sequences
+        }
     }
 
     fun openDialog() { _dialogInput.value = ""; _dialogError.value = null; _showDialog.value = true }
     fun dismissDialog() { _showDialog.value = false }
     fun onDialogInput(v: String) { _dialogInput.value = v; _dialogError.value = null }
+
     fun confirmConnect() {
         val id = _dialogInput.value.trim()
         when {
@@ -68,6 +84,10 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
     fun onNavigated() { _navigate.value = null }
-    fun refresh() { if (!bluetoothManager.isRunning.value) bluetoothManager.start() }
+
+    fun refresh() {
+        if (!bluetoothManager.isRunning.value) bluetoothManager.start()
+    }
 }

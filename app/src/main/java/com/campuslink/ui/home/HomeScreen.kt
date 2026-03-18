@@ -95,13 +95,7 @@ fun HomeScreen(navController: NavHostController, viewModel: HomeViewModel = hilt
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            
-            if (settingsFlow.value?.demoMode == true) {
-                Box(Modifier.fillMaxWidth().background(AmberGlow.copy(0.2f)).padding(8.dp), contentAlignment = Alignment.Center) {
-                    Text("🧪 Demo Mode Active (Virtual nodes enabled)", color = AmberGlow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            
+
             LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 if (previews.isEmpty()) {
                     item {

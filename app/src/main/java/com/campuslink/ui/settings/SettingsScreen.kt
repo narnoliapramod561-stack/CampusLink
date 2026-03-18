@@ -103,23 +103,7 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                 }
             }
 
-            item { SectionLabel("SIMULATION") }
-            item {
-                Column(Modifier.glassCard(20).padding(4.dp)) {
-                    GlassSettingsRow(
-                        icon = Icons.Default.Science, 
-                        title = "Dev: LPU Demo Mode", 
-                        subtitle = "Inject 5 virtual LPU users into mesh",
-                        trailing = {
-                            Switch(
-                                checked = settings.demoMode, 
-                                onCheckedChange = { viewModel.toggleDemoMode(it) },
-                                colors = SwitchDefaults.colors(checkedThumbColor = AmberGlow, checkedTrackColor = AmberGlow.copy(alpha = 0.5f))
-                            )
-                        }
-                    )
-                }
-            }
+
 
             item { Spacer(Modifier.height(16.dp)) }
             item {

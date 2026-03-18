@@ -9,11 +9,12 @@ data class AppSettings(
     val vibrationEnabled: Boolean = true,
     val showHopCount: Boolean = true,
     val encryptionEnabled: Boolean = false,
-    // NEW v3:
-    val batterySaverMode: Boolean = false,  // reduces scan freq, lowers relay rate
-    val adaptiveTtl: Boolean = true,        // auto-adjust TTL based on network density
-    val demoMode: Boolean = false,          // simulate 5 virtual LPU devices
+    val batterySaverMode: Boolean = false,
+    val adaptiveTtl: Boolean = true,
     val currentZone: String = "BLOCK_32",
     val currentRole: String = "STUDENT",
     val department: String = ""
+    // FIX: demoMode field removed.
+    // It caused fake LPU users to be inserted into Room DB and appear in the
+    // Chats list. It also intercepted real Bluetooth sends in ChatViewModel.
 )

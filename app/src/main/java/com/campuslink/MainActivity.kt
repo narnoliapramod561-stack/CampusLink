@@ -14,38 +14,28 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) arrayOf(
+        Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT,
+        Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION
+    ) else arrayOf(
+        Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )
 
-    private val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.BLUETOOTH_ADVERTISE,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-    } else {
-        arrayOf(
-            Manifest.permission.BLUETOOTH,
-            Manifest.permission.BLUETOOTH_ADMIN,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        requestPermissions(requiredPermissions, 100)
-        setContent {
-            CampusLinkTheme {
-                NavGraph()
-            }
+    override fun onCreate(s: Bundle?) {
+        super.onCreate(s)
+        requestPermissions(perms, 100)
+        setContent { 
+            CampusLinkTheme { 
+                NavGraph() 
+            } 
         }
     }
-
-    override fun onRequestPermissionsResult(code: Int, perms: Array<String>, grants: IntArray) {
-        super.onRequestPermissionsResult(code, perms, grants)
+    
+    override fun onRequestPermissionsResult(code: Int, permissions: Array<String>, grants: IntArray) {
+        super.onRequestPermissionsResult(code, permissions, grants)
         if (grants.all { it == PackageManager.PERMISSION_GRANTED }) {
-            Intent(this, BluetoothForegroundService::class.java).also {
-                startForegroundService(it)
-            }
+            startForegroundService(Intent(this, BluetoothForegroundService::class.java))
         }
     }
 }

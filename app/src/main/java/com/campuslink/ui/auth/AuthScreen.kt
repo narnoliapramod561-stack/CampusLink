@@ -1,203 +1,71 @@
 package com.campuslink.ui.auth
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.NavController
+import com.campuslink.ui.theme.*
+import com.campuslink.ui.components.glassCard
 
 @Composable
-fun AuthScreen(
-    navController: NavController,
-    viewModel: AuthViewModel = hiltViewModel()
-) {
-    val state by viewModel.uiState.collectAsState()
+fun AuthScreen(viewModel: AuthViewModel = hiltViewModel(), onLoginSuccess: () -> Unit) {
+    val state by viewModel.isLoggedIn.collectAsState()
+    var username by remember { mutableStateOf("") }
+    
+    LaunchedEffect(state) { if (state) onLoginSuccess() }
 
-    // ── BUG B3 FIX ────────────────────────────────────────────────────────
-    // Once the session check completes, navigate immediately to Home
-    // if the user already registered in a previous session.
-    // Without this, every app launch shows the auth screen — extremely
-    // annoying during the demo when relaunching the app between tests.
-    // ──────────────────────────────────────────────────────────────────────
-    LaunchedEffect(state.sessionChecked, state.alreadyLoggedIn) {
-        if (state.sessionChecked && state.alreadyLoggedIn) {
-            navController.navigate("home") {
-                popUpTo("auth") { inclusive = true }
-            }
-        }
-    }
+    Box(Modifier.fillMaxSize().background(
+        Brush.verticalGradient(listOf(WarmBlack, DeepBrown))
+    ), contentAlignment = Alignment.Center) {
+        
+        // Background Glows
+        Box(Modifier.size(300.dp).offset(x = (-100).dp, y = (-200).dp).background(AmberGlow.copy(0.05f), RoundedCornerShape(150.dp)))
+        Box(Modifier.size(400.dp).offset(x = 150.dp, y = 200.dp).background(TealAccent.copy(0.05f), RoundedCornerShape(200.dp)))
 
-    // Navigate after fresh registration
-    LaunchedEffect(state.isSuccess) {
-        if (state.isSuccess) {
-            navController.navigate("home") {
-                popUpTo("auth") { inclusive = true }
-            }
-        }
-    }
-
-    // Show a blank loading screen while checking session (avoids auth flash)
-    if (!state.sessionChecked) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1A1410)),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(color = Color(0x66E89A5B))
-        }
-        return
-    }
-
-    // If already logged in, show blank screen while LaunchedEffect navigates
-    if (state.alreadyLoggedIn) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1A1410))
-        )
-        return
-    }
-
-    // ── Registration form (shown only when not logged in) ─────────────────
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF1A1410), Color(0xFF0F0C0A))
+        Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("CampusLink", color = TextPrimary, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Decentralized Offline Mesh", color = TextSecondary, fontSize = 14.sp)
+            
+            Spacer(Modifier.height(48.dp))
+            
+            Column(Modifier.fillMaxWidth().glassCard(24).padding(24.dp)) {
+                Text("Join Network", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(16.dp))
+                
+                TextField(
+                    value = username, onValueChange = { username = it },
+                    placeholder = { Text("Display Name", color = TextHint) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = TealAccent,
+                        unfocusedIndicatorColor = GlassBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    )
                 )
-            )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = "📡",
-                fontSize = 64.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "CampusLink",
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFF5E6D8),
-                letterSpacing = 1.sp
-            )
-            Text(
-                text = "Offline Campus Messaging",
-                fontSize = 14.sp,
-                color = Color(0xFFA89B8F),
-                modifier = Modifier.padding(top = 4.dp)
-            )
-
-            Spacer(modifier = Modifier.height(48.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF2A1F18)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                
+                Spacer(Modifier.height(24.dp))
+                
+                Button(
+                    onClick = { if(username.isNotBlank()) viewModel.login(username) },
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
                 ) {
-                    Text(
-                        text = "Join the Network",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = Color(0xFFF5E6D8)
-                    )
-
-                    OutlinedTextField(
-                        value = state.username,
-                        onValueChange = viewModel::onUsernameChange,
-                        label = { Text("Display Name", color = Color(0xFFA89B8F)) },
-                        placeholder = { Text("e.g. Alice Chen", color = Color(0xFFA89B8F)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = state.userId,
-                        onValueChange = viewModel::onUserIdChange,
-                        label = { Text("User ID", color = Color(0xFFA89B8F)) },
-                        placeholder = { Text("e.g. alice123", color = Color(0xFFA89B8F)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    AnimatedVisibility(visible = state.error != null) {
-                        state.error?.let {
-                            Text(
-                                text = it,
-                                color = MaterialTheme.colorScheme.error,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = viewModel::joinNetwork,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0x66E89A5B),
-                            contentColor = Color(0xFFF5E6D8)
-                        ),
-                        enabled = !state.isLoading
-                    ) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp)
-                        } else {
-                            Text("Join Campus Network", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                    Text("Enter Lounge", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "No internet required • Bluetooth only",
-                color = Color(0xFFA89B8F),
-                fontSize = 12.sp
-            )
         }
     }
 }

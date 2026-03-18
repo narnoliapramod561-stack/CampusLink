@@ -9,5 +9,6 @@ data class User(
     val username: String,
     val deviceAddress: String,
     val isOnline: Boolean = false,
-    val lastSeen: Long = 0L
+    val lastSeen: Long = 0L,
+    val rssi: Int = 0            // signal strength — used for smart routing
 )

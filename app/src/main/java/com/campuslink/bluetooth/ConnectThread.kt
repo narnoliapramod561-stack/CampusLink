@@ -22,23 +22,13 @@ class ConnectThread(
             var socket: BluetoothSocket? = null
             try {
                 bluetoothAdapter.cancelDiscovery()
-
-                if (!BluetoothAdapter.checkBluetoothAddress(peerMacAddress)) {
-                    CampusLog.e("ConnectThread", "Invalid MAC address: $peerMacAddress")
-                    onFailed(peerMacAddress)
-                    return@launch
-                }
-
-                val device = bluetoothAdapter.getRemoteDevice(peerMacAddress)
-                socket = device.createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
+                socket = bluetoothAdapter.getRemoteDevice(peerMacAddress)
+                    .createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
                 socket.connect()
-                CampusLog.d("ConnectThread", "Connected to $peerMacAddress")
-                val thread = ConnectedThread(socket, scope, relayEngine) { disconnected ->
-                    CampusLog.d("ConnectThread", "Disconnected from ${disconnected.deviceAddress}")
-                }
-                onConnected(thread)
+                CampusLog.d("ConnectThread","Connected to $peerMacAddress")
+                onConnected(ConnectedThread(socket, scope, relayEngine) {})
             } catch (e: IOException) {
-                CampusLog.e("ConnectThread", "Failed to connect to $peerMacAddress: ${e.message}")
+                CampusLog.e("ConnectThread","Failed $peerMacAddress: ${e.message}")
                 try { socket?.close() } catch (_: IOException) {}
                 onFailed(peerMacAddress)
             }

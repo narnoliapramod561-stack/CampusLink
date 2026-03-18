@@ -13,5 +13,5 @@ data class Message(
     var ttl: Int = 7,
     var hopCount: Int = 0,
     val expiry: Long = System.currentTimeMillis() + 86_400_000L,
-    val status: String = MessageStatus.SENDING.name
+    val status: String = "SENDING"
 )

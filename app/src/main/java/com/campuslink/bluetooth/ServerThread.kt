@@ -19,36 +19,21 @@ class ServerThread(
 ) {
     private var serverSocket: BluetoothServerSocket? = null
     private var serverJob: Job? = null
-
     fun start() {
         serverJob = scope.launch(Dispatchers.IO) {
             try {
                 serverSocket = bluetoothAdapter.listenUsingInsecureRfcommWithServiceRecord(
-                    Constants.BT_SERVICE_NAME, Constants.MY_APP_UUID
-                )
-                CampusLog.d("Server", "Listening for incoming connections...")
+                    Constants.BT_SERVICE_NAME, Constants.MY_APP_UUID)
+                CampusLog.d("Server","Listening...")
                 while (isActive) {
                     try {
                         val socket = serverSocket?.accept() ?: break
-                        CampusLog.d("Server", "Accepted connection from ${socket.remoteDevice.address}")
-                        val thread = ConnectedThread(socket, scope, relayEngine) { disconnected ->
-                            CampusLog.d("Server", "Client disconnected: ${disconnected.deviceAddress}")
-                        }
-                        onClientConnected(thread)
-                    } catch (e: IOException) {
-                        if (isActive) CampusLog.e("Server", "Accept failed: ${e.message}")
-                        break
-                    }
+                        CampusLog.d("Server","Accepted ${socket.remoteDevice.address}")
+                        onClientConnected(ConnectedThread(socket, scope, relayEngine) {})
+                    } catch (e: IOException) { if (isActive) CampusLog.e("Server","Accept: ${e.message}"); break }
                 }
-            } catch (e: IOException) {
-                CampusLog.e("Server", "Failed to create server socket: ${e.message}")
-            }
+            } catch (e: IOException) { CampusLog.e("Server","Init: ${e.message}") }
         }
     }
-
-    fun stop() {
-        serverJob?.cancel()
-        try { serverSocket?.close() } catch (_: IOException) {}
-        CampusLog.d("Server", "Server socket closed")
-    }
+    fun stop() { serverJob?.cancel(); try { serverSocket?.close() } catch (_: IOException) {} }
 }

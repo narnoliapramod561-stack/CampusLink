@@ -31,163 +31,74 @@ class BluetoothManager @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
-
-    // ConcurrentHashMap for thread-safe peer tracking
     private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>()
-
-    // ── BUG B4 FIX ────────────────────────────────────────────────────────
-    // mutableSetOf<String>() is NOT thread-safe.
-    // BLE discovery callback and connect/disconnect callbacks run on
-    // different IO threads concurrently → ConcurrentModificationException risk.
-    // ConcurrentHashMap.newKeySet() is a proper concurrent set backed by CHM.
-    // ──────────────────────────────────────────────────────────────────────
+    
+    // Thread-safe set for connected MACs
     private val connectedAddresses: MutableSet<String> = ConcurrentHashMap.newKeySet()
-
+    
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-
     private var serverThread: ServerThread? = null
-    private var myUserId: String = ""
-    private var myUsername: String = ""
+    private var myUserId = ""; private var myUsername = ""
 
-    var isSimulationMode: Boolean = false
-        private set
-
-    fun setSimulationMode(enabled: Boolean) {
-        isSimulationMode = enabled
-        if (enabled) {
-            CampusLog.d("BTManager", "Simulation mode enabled — silencing real Bluetooth")
-            stop()
-        }
-    }
-
-    init {
-        relayEngine.allThreads = { connectedThreads.values.toList() }
-    }
+    init { relayEngine.allThreads = { connectedThreads.values.toList() } }
 
     fun start() {
-        if (isSimulationMode) {
-            CampusLog.d("BTManager", "Start ignored: Simulation mode is active")
-            return
-        }
         scope.launch {
-            myUserId = sessionManager.getUserId() ?: run {
-                CampusLog.e("BTManager", "No user session found — cannot start")
-                return@launch
-            }
+            myUserId = sessionManager.getUserId() ?: return@launch
             myUsername = sessionManager.getUsername() ?: myUserId
             relayEngine.myUserId = myUserId
-
             _isRunning.value = true
-            CampusLog.d("BTManager", "Starting with userId=$myUserId")
-
-            // Start BLE advertising + scanning
-            bleDiscovery.startAdvertising()
-            bleDiscovery.startScanning()
-
-            // Collect discovered peer MACs and connect
-            launch {
-                bleDiscovery.discoveredMacs.collect { mac ->
-                    if (!connectedAddresses.contains(mac) && mac != bluetoothAdapter.address) {
-                        CampusLog.d("BTManager", "New peer discovered: $mac — connecting...")
-                        connectedAddresses.add(mac)
-                        connectTo(mac)
-                    }
+            bleDiscovery.startAdvertising(); bleDiscovery.startScanning()
+            launch { bleDiscovery.discoveredMacs.collect { mac ->
+                if (!connectedAddresses.contains(mac) && mac != bluetoothAdapter.address) {
+                    connectedAddresses.add(mac); connectTo(mac)
                 }
-            }
-
-            // Start RFCOMM server to accept incoming connections
-            serverThread = ServerThread(bluetoothAdapter, scope, relayEngine) { thread ->
-                registerThread(thread)
-            }
+            }}
+            serverThread = ServerThread(bluetoothAdapter, scope, relayEngine) { registerThread(it) }
             serverThread?.start()
+            CampusLog.d("BTManager","Started userId=$myUserId")
         }
     }
 
     private fun connectTo(mac: String) {
-        if (isSimulationMode) return
-
-        if (!BluetoothAdapter.checkBluetoothAddress(mac)) {
-            CampusLog.e("BTManager", "Ignoring invalid discovered MAC: $mac")
-            return
-        }
-
-        ConnectThread(
-            bluetoothAdapter = bluetoothAdapter,
-            peerMacAddress = mac,
-            scope = scope,
-            relayEngine = relayEngine,
-            onConnected = { thread ->
-                registerThread(thread)
-            },
-            onFailed = { failedMac ->
-                // Remove from tracked set so BLE rediscovery can retry
-                connectedAddresses.remove(failedMac)
-                CampusLog.w("BTManager", "Connection failed to $failedMac — will retry on rediscovery")
-            }
+        ConnectThread(bluetoothAdapter, mac, scope, relayEngine,
+            onConnected = { registerThread(it) },
+            onFailed = { connectedAddresses.remove(it) }
         ).start()
     }
 
-    // ── BUG B2 FIX ────────────────────────────────────────────────────────
-    // The original registerThread() created ConnectedThread in ServerThread
-    // and ConnectThread with an onDisconnected lambda that only logged.
-    // BluetoothManager never cleaned up the dead thread from connectedThreads.
-    // Fix: create a NEW ConnectedThread here wrapping the accepted socket,
-    // with a proper onDisconnected lambda that removes it from the map
-    // and updates stats. This is the single authoritative place for cleanup.
-    // ──────────────────────────────────────────────────────────────────────
-    private fun registerThread(incomingThread: ConnectedThread) {
-        // Wrap with cleanup-aware disconnect callback
-        val thread = ConnectedThread(
-            socket = incomingThread.socket,
-            scope = scope,
-            relayEngine = relayEngine,
-            onDisconnected = { dead ->
-                connectedThreads.remove(dead.deviceAddress)
-                connectedAddresses.remove(dead.deviceAddress)
-                scope.launch { repository.onNodeDisconnected() }
-                CampusLog.d("BTManager", "Peer removed: ${dead.deviceAddress} | active=${connectedThreads.size}")
-            }
-        )
-
+    // Proper cleanup on disconnect
+    private fun registerThread(incoming: ConnectedThread) {
+        val thread = ConnectedThread(incoming.socket, scope, relayEngine) { dead ->
+            connectedThreads.remove(dead.deviceAddress)
+            connectedAddresses.remove(dead.deviceAddress)
+            scope.launch { repository.onNodeDisconnected() }
+            CampusLog.d("BTManager","Removed ${dead.deviceAddress} active=${connectedThreads.size}")
+        }
         connectedThreads[thread.deviceAddress] = thread
-        CampusLog.d("BTManager", "Registered peer: ${thread.deviceAddress} | total=${connectedThreads.size}")
-
-        // Send identity handshake immediately after connecting
-        val handshake = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address)
-        thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(handshake)))
+        val hs = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address)
+        thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(hs)))
+        CampusLog.d("BTManager","Registered ${thread.deviceAddress} total=${connectedThreads.size}")
     }
 
     fun sendMessage(msg: Message) {
-        val targetThread = connectedThreads.values.find { it.remoteUserId == msg.receiverId }
-        val packet = Packet(PacketType.MESSAGE.name, gson.toJson(msg.copy(status = MessageStatus.SENDING.name)))
-
+        val target = connectedThreads.values.find { it.remoteUserId == msg.receiverId }
+        val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(msg))
         scope.launch {
-            if (targetThread != null) {
-                // Direct delivery — with retry
-                relayEngine.sendWithRetry(packet, targetThread)
-            } else {
-                // Flood-relay to all connected peers (DTN broadcast)
+            if (target != null) relayEngine.sendWithRetry(pkt, target)
+            else {
                 val threads = connectedThreads.values.toList()
-                if (threads.isEmpty()) {
-                    CampusLog.w("BTManager", "No peers connected — storing ${msg.messageId} as PENDING")
-                    repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
-                } else {
-                    threads.forEach { it.enqueue(packet) }
-                    CampusLog.d("BTManager", "Flooded ${msg.messageId} to ${threads.size} peers")
-                }
+                if (threads.isEmpty()) repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
+                else threads.forEach { it.enqueue(pkt) }
             }
         }
     }
 
     fun stop() {
-        _isRunning.value = false
-        bleDiscovery.stopAll()
-        serverThread?.stop()
+        _isRunning.value = false; bleDiscovery.stopAll(); serverThread?.stop()
         connectedThreads.values.forEach { it.disconnect() }
-        connectedThreads.clear()
-        connectedAddresses.clear()
-        CampusLog.d("BTManager", "Stopped")
+        connectedThreads.clear(); connectedAddresses.clear()
     }
 
     fun getConnectedPeerCount() = connectedThreads.size

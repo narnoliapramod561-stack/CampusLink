@@ -8,15 +8,12 @@ import com.campuslink.domain.model.PacketType
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.DataInputStream
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
-import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicBoolean
 
 class ConnectedThread(
     val socket: BluetoothSocket,
@@ -27,92 +24,51 @@ class ConnectedThread(
     val deviceAddress: String = socket.remoteDevice.address
     var remoteUserId: String = ""
     private var lastPongTime = System.currentTimeMillis()
-
-    // ── BUG B5 FIX ────────────────────────────────────────────────────────
-    // Guard against disconnect() being called multiple times concurrently
-    // (e.g. heartbeat timeout + IOException on read firing simultaneously)
-    // Without this, onDisconnected() is called twice → double removal from
-    // connectedThreads, double onNodeDisconnected(), corrupted stats.
-    // ──────────────────────────────────────────────────────────────────────
-    private val disconnected = AtomicBoolean(false)
-
-    // Channel-based send queue — prevents concurrent OutputStream corruption
+    val connectedAt: Long = System.currentTimeMillis()
+    
+    // AtomicBoolean prevents double-disconnect
+    private val disconnected = java.util.concurrent.atomic.AtomicBoolean(false)
     private val sendChannel = Channel<Packet>(capacity = Channel.UNLIMITED)
 
     private val writerJob = scope.launch(Dispatchers.IO) {
         for (packet in sendChannel) {
-            try {
-                writeToStream(socket.outputStream, packet)
-            } catch (e: IOException) {
-                CampusLog.e("ConnThread", "Write failed: ${e.message}")
-                disconnect()
-                break
-            }
+            try { writeToStream(socket.outputStream, packet) }
+            catch (e: IOException) { CampusLog.e("ConnThread","Write failed: ${e.message}"); disconnect(); break }
         }
     }
-
     private val readerJob = scope.launch(Dispatchers.IO) {
-        try {
-            while (isActive) {
-                val packet = readPacket(socket.inputStream)
-                relayEngine.onPacketReceived(packet, this@ConnectedThread)
-            }
-        } catch (e: IOException) {
-            CampusLog.e("ConnThread", "Read failed: ${e.message}")
-            disconnect()
-        }
+        try { while (isActive) { val p = readPacket(socket.inputStream); relayEngine.onPacketReceived(p, this@ConnectedThread) } }
+        catch (e: IOException) { CampusLog.e("ConnThread","Read failed: ${e.message}"); disconnect() }
     }
-
     private val heartbeatJob = scope.launch(Dispatchers.IO) {
         while (isActive) {
-            kotlinx.coroutines.delay(Constants.HEARTBEAT_INTERVAL_MS)
+            delay(Constants.HEARTBEAT_INTERVAL_MS)
             enqueue(Packet(PacketType.PING.name, ""))
-            CampusLog.d("Heartbeat", "PING sent to $deviceAddress")
             if (System.currentTimeMillis() - lastPongTime > Constants.HEARTBEAT_TIMEOUT_MS) {
-                CampusLog.w("Heartbeat", "Timeout — disconnecting $deviceAddress")
-                disconnect()
-                break
+                CampusLog.w("Heartbeat","Timeout $deviceAddress"); disconnect(); break
             }
         }
     }
-
-    fun enqueue(packet: Packet) {
-        sendChannel.trySend(packet)
-    }
-
-    fun updatePongTime() {
-        lastPongTime = System.currentTimeMillis()
-    }
-
+    fun enqueue(packet: Packet) { sendChannel.trySend(packet) }
+    fun updatePongTime() { lastPongTime = System.currentTimeMillis() }
     fun disconnect() {
-        // ── B5 FIX: compareAndSet ensures this block runs exactly once ───
         if (!disconnected.compareAndSet(false, true)) return
-
-        writerJob.cancel()
-        readerJob.cancel()
-        heartbeatJob.cancel()
+        writerJob.cancel(); readerJob.cancel(); heartbeatJob.cancel()
         sendChannel.close()
         try { socket.close() } catch (_: IOException) {}
         onDisconnected(this)
     }
-
     companion object {
-        fun writeToStream(outputStream: OutputStream, packet: Packet) {
+        fun writeToStream(out: java.io.OutputStream, packet: Packet) {
             val json = Gson().toJson(packet).toByteArray(Charsets.UTF_8)
-            val lenBytes = ByteBuffer.allocate(4).putInt(json.size).array()
-            outputStream.write(lenBytes)   // 4 bytes: big-endian length
-            outputStream.write(json)       // N bytes: JSON payload
-            outputStream.flush()
+            out.write(java.nio.ByteBuffer.allocate(4).putInt(json.size).array())
+            out.write(json); out.flush()
         }
-
-        fun readPacket(inputStream: InputStream): Packet {
-            val dis = DataInputStream(inputStream)
-            val lenBuf = ByteArray(4)
-            dis.readFully(lenBuf)                          // blocks until exactly 4 bytes
-            val len = ByteBuffer.wrap(lenBuf).int
-            val payloadBuf = ByteArray(len)
-            dis.readFully(payloadBuf)                      // blocks until exactly len bytes
-            return Gson().fromJson(String(payloadBuf, Charsets.UTF_8), Packet::class.java)
+        fun readPacket(inp: java.io.InputStream): Packet {
+            val dis = java.io.DataInputStream(inp)
+            val lenBuf = ByteArray(4); dis.readFully(lenBuf)
+            val payload = ByteArray(java.nio.ByteBuffer.wrap(lenBuf).int); dis.readFully(payload)
+            return Gson().fromJson(String(payload, Charsets.UTF_8), Packet::class.java)
         }
     }
 }

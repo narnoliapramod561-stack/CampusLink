@@ -69,10 +69,10 @@ fun AuthScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0A1628)),
+                .background(Color(0xFF1A1410)),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = Color(0xFF0F766E))
+            CircularProgressIndicator(color = Color(0x66E89A5B))
         }
         return
     }
@@ -82,7 +82,7 @@ fun AuthScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0A1628))
+                .background(Color(0xFF1A1410))
         )
         return
     }
@@ -93,7 +93,7 @@ fun AuthScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0A1628), Color(0xFF1B3A6B), Color(0xFF0F766E))
+                    colors = listOf(Color(0xFF1A1410), Color(0xFF0F0C0A))
                 )
             )
     ) {
@@ -114,13 +114,13 @@ fun AuthScreen(
                 text = "CampusLink",
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = Color(0xFFF5E6D8),
                 letterSpacing = 1.sp
             )
             Text(
                 text = "Offline Campus Messaging",
                 fontSize = 14.sp,
-                color = Color(0xFFB0C4DE),
+                color = Color(0xFFA89B8F),
                 modifier = Modifier.padding(top = 4.dp)
             )
 
@@ -129,7 +129,7 @@ fun AuthScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2A1F18)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
@@ -140,14 +140,14 @@ fun AuthScreen(
                         text = "Join the Network",
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
-                        color = Color(0xFF0F172A)
+                        color = Color(0xFFF5E6D8)
                     )
 
                     OutlinedTextField(
                         value = state.username,
                         onValueChange = viewModel::onUsernameChange,
-                        label = { Text("Display Name") },
-                        placeholder = { Text("e.g. Alice Chen") },
+                        label = { Text("Display Name", color = Color(0xFFA89B8F)) },
+                        placeholder = { Text("e.g. Alice Chen", color = Color(0xFFA89B8F)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -155,8 +155,8 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = state.userId,
                         onValueChange = viewModel::onUserIdChange,
-                        label = { Text("User ID") },
-                        placeholder = { Text("e.g. alice123") },
+                        label = { Text("User ID", color = Color(0xFFA89B8F)) },
+                        placeholder = { Text("e.g. alice123", color = Color(0xFFA89B8F)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -178,7 +178,8 @@ fun AuthScreen(
                             .height(52.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1B3A6B)
+                            containerColor = Color(0x66E89A5B),
+                            contentColor = Color(0xFFF5E6D8)
                         ),
                         enabled = !state.isLoading
                     ) {
@@ -194,7 +195,7 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "No internet required • Bluetooth only",
-                color = Color(0xFFB0C4DE),
+                color = Color(0xFFA89B8F),
                 fontSize = 12.sp
             )
         }

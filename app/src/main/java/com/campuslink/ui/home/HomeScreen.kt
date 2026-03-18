@@ -98,21 +98,22 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("CampusLink", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
-                        Text("Offline mesh messaging", color = Color(0xFFB0C4DE), fontSize = 11.sp)
+                        Text("CampusLink", fontWeight = FontWeight.Bold, color = Color(0xFFF5E6D8), fontSize = 18.sp)
+                        Text("Offline mesh messaging", color = Color(0xFFA89B8F), fontSize = 11.sp)
                     }
                 },
                 actions = {
                     // Manual connect button in top bar
                     IconButton(onClick = viewModel::openConnectDialog) {
-                        Icon(Icons.Default.Add, contentDescription = "New Chat", tint = Color.White)
+                        Icon(Icons.Default.Add, contentDescription = "New Chat", tint = Color(0xFFF5E6D8))
                     }
                     SuggestionChip(
                         onClick = {},
                         label = {
                             Text(
                                 if (isRunning) "● ON" else "● OFF",
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                color = Color(0xFFF5E6D8)
                             )
                         },
                         modifier = Modifier.padding(end = 8.dp),
@@ -122,14 +123,14 @@ fun HomeScreen(
                         )
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1B3A6B))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F0C0A))
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = viewModel::openConnectDialog,
-                containerColor = Color(0xFF0F766E),
-                contentColor = Color.White,
+                containerColor = Color(0xFF2A1F18),
+                contentColor = Color(0xFFF5E6D8),
                 shape = CircleShape
             ) {
                 Icon(Icons.Default.Add, contentDescription = "New Chat")
@@ -140,7 +141,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF1F5F9))
+                .background(Color(0xFF1A1410))
         ) {
             // Stats bar
             StatsBar(stats)
@@ -149,7 +150,7 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White),
+                    .background(Color(0xFF0F0C0A)),
             ) {
                 listOf("Chats (${conversations.size})", "Nearby (${otherNearby.size})").forEachIndexed { i, title ->
                     Tab(
@@ -161,13 +162,13 @@ fun HomeScreen(
                                 title,
                                 fontWeight = if (selectedTab == i) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 13.sp,
-                                color = if (selectedTab == i) Color(0xFF1B3A6B) else Color(0xFF64748B)
+                                color = if (selectedTab == i) Color(0xFFF5E6D8) else Color(0xFFA89B8F)
                             )
                         }
                     )
                 }
             }
-            Divider(color = Color(0xFFE2E8F0))
+            Divider(color = Color(0xFF2A1F18))
 
             when (selectedTab) {
                 0 -> ChatsTab(
@@ -222,18 +223,18 @@ fun ChatsTab(
                 "No conversations yet",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
-                color = Color(0xFF334155)
+                color = Color(0xFFF5E6D8)
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 "Tap + to start a chat by User ID",
                 fontSize = 13.sp,
-                color = Color(0xFF64748B)
+                color = Color(0xFFA89B8F)
             )
             Spacer(modifier = Modifier.height(20.dp))
             TextButton(
                 onClick = onNewChat,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0x66E89A5B))
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -249,7 +250,7 @@ fun ChatsTab(
                 ConversationRow(conv = conv, onClick = { onChatClick(conv) })
                 Divider(
                     modifier = Modifier.padding(start = 76.dp),
-                    color = Color(0xFFE2E8F0),
+                    color = Color(0xFF2A1F18),
                     thickness = 0.5.dp
                 )
             }
@@ -260,8 +261,7 @@ fun ChatsTab(
 @Composable
 fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
     val avatarColors = listOf(
-        Color(0xFF1B3A6B), Color(0xFF0F766E), Color(0xFF7C3AED),
-        Color(0xFFDC2626), Color(0xFFD97706)
+        Color(0xFF2A1F18), Color(0xFF1A1410), Color(0xFF3A2F28)
     )
     val avatarColor = avatarColors[conv.partnerId.hashCode().and(0x7FFFFFFF) % avatarColors.size]
 
@@ -269,7 +269,7 @@ fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .background(Color.White)
+            .background(Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -283,7 +283,7 @@ fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
         ) {
             Text(
                 text = conv.partnerName.take(1).uppercase(),
-                color = Color.White,
+                color = Color(0xFFF5E6D8),
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
@@ -301,12 +301,12 @@ fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
                     text = conv.partnerName,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
-                    color = Color(0xFF0F172A)
+                    color = Color(0xFFF5E6D8)
                 )
                 Text(
                     text = formatTime(conv.lastTimestamp),
                     fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
+                    color = Color(0xFFA89B8F)
                 )
             }
             Spacer(modifier = Modifier.height(2.dp))
@@ -323,7 +323,7 @@ fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
                 Text(
                     text = conv.lastMessage,
                     fontSize = 13.sp,
-                    color = Color(0xFF64748B),
+                    color = Color(0xFFA89B8F),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -343,13 +343,13 @@ fun NearbyTab(users: List<User>, onChatClick: (User) -> Unit, onRefresh: () -> U
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            CircularProgressIndicator(color = Color(0xFF1B3A6B), modifier = Modifier.size(32.dp))
+            CircularProgressIndicator(color = Color(0x66E89A5B), modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.height(14.dp))
-            Text("Scanning for nearby students...", color = Color(0xFF64748B), fontSize = 13.sp)
+            Text("Scanning for nearby students...", color = Color(0xFFA89B8F), fontSize = 13.sp)
             Spacer(modifier = Modifier.height(16.dp))
             TextButton(
                 onClick = onRefresh,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0x66E89A5B))
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
@@ -365,7 +365,7 @@ fun NearbyTab(users: List<User>, onChatClick: (User) -> Unit, onRefresh: () -> U
                 NearbyUserRow(user = user, onClick = { onChatClick(user) })
                 Divider(
                     modifier = Modifier.padding(start = 76.dp),
-                    color = Color(0xFFE2E8F0),
+                    color = Color(0xFF2A1F18),
                     thickness = 0.5.dp
                 )
             }
@@ -376,8 +376,7 @@ fun NearbyTab(users: List<User>, onChatClick: (User) -> Unit, onRefresh: () -> U
 @Composable
 fun NearbyUserRow(user: User, onClick: () -> Unit) {
     val avatarColors = listOf(
-        Color(0xFF1B3A6B), Color(0xFF0F766E), Color(0xFF7C3AED),
-        Color(0xFFDC2626), Color(0xFFD97706)
+        Color(0xFF2A1F18), Color(0xFF1A1410), Color(0xFF3A2F28)
     )
     val avatarColor = avatarColors[user.userId.hashCode().and(0x7FFFFFFF) % avatarColors.size]
 
@@ -385,7 +384,7 @@ fun NearbyUserRow(user: User, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .background(Color.White)
+            .background(Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -398,7 +397,7 @@ fun NearbyUserRow(user: User, onClick: () -> Unit) {
         ) {
             Text(
                 text = user.username.take(1).uppercase(),
-                color = Color.White,
+                color = Color(0xFFF5E6D8),
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
@@ -413,22 +412,22 @@ fun NearbyUserRow(user: User, onClick: () -> Unit) {
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (user.isOnline) Color(0xFF16A34A) else Color(0xFFCBD5E1))
+                        .background(if (user.isOnline) Color(0xFF16A34A) else Color(0xFF3A2F28))
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(user.username, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color(0xFF0F172A))
+                Text(user.username, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color(0xFFF5E6D8))
             }
             Text(
                 "@${user.userId}",
                 fontSize = 12.sp,
-                color = Color(0xFF64748B),
+                color = Color(0xFFA89B8F),
                 modifier = Modifier.padding(start = 14.dp)
             )
         }
 
         TextButton(
             onClick = onClick,
-            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+            colors = ButtonDefaults.textButtonColors(contentColor = Color(0x66E89A5B))
         ) {
             Text("Chat", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         }
@@ -442,14 +441,14 @@ fun StatsBar(stats: NetworkStats) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1B3A6B))
+            .background(Color(0xFF0F0C0A))
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        StatPill("${stats.activeNodes} nodes",    Color(0xFF60A5FA))
-        StatPill("${stats.messagesSent} sent",    Color(0xFF34D399))
-        StatPill("${stats.messagesRelayed} relayed", Color(0xFFA78BFA))
-        StatPill("${stats.messagesDelivered} delivered", Color(0xFF4ADE80))
+        StatPill("${stats.activeNodes} nodes",    Color(0xFFA89B8F))
+        StatPill("${stats.messagesSent} sent",    Color(0xFFA89B8F))
+        StatPill("${stats.messagesRelayed} relayed", Color(0xFFA89B8F))
+        StatPill("${stats.messagesDelivered} delivered", Color(0xFFA89B8F))
     }
 }
 
@@ -480,7 +479,7 @@ fun ConnectByIdDialog(
                 "New Chat",
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
-                color = Color(0xFF0F172A)
+                color = Color(0xFFF5E6D8)
             )
         },
         text = {
@@ -489,21 +488,24 @@ fun ConnectByIdDialog(
                     "Enter the User ID of the person you want to message.\n" +
                     "They don't need to be nearby — the message will be delivered when a relay path becomes available.",
                     fontSize = 13.sp,
-                    color = Color(0xFF64748B),
+                    color = Color(0xFFA89B8F),
                     lineHeight = 18.sp
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedTextField(
                     value = input,
                     onValueChange = onChange,
-                    label = { Text("User ID") },
-                    placeholder = { Text("e.g. alice123") },
+                    label = { Text("User ID", color = Color(0xFFA89B8F)) },
+                    placeholder = { Text("e.g. alice123", color = Color(0xFFA89B8F)) },
                     isError = error != null,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF1B3A6B),
-                        errorBorderColor   = Color(0xFFDC2626)
+                        focusedBorderColor = Color(0x66E89A5B),
+                        errorBorderColor   = Color(0xFFDC2626),
+                        unfocusedBorderColor = Color(0xFF2A1F18),
+                        focusedTextColor = Color(0xFFF5E6D8),
+                        unfocusedTextColor = Color(0xFFF5E6D8)
                     )
                 )
                 if (error != null) {
@@ -515,17 +517,17 @@ fun ConnectByIdDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0x66E89A5B))
             ) {
                 Text("Open Chat", fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF64748B))
+                Text("Cancel", color = Color(0xFFA89B8F))
             }
         },
-        containerColor = Color.White,
+        containerColor = Color(0xFF1A1410),
         shape = RoundedCornerShape(20.dp)
     )
 }

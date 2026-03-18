@@ -7,15 +7,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val CampusLinkColorScheme = lightColorScheme(
-    primary = Color(0xFF1B3A6B),          // Deep Navy
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFDBEAFE),
-    secondary = Color(0xFF0F766E),         // Teal
-    onSecondary = Color.White,
-    surface = Color(0xFFF8FAFC),
-    background = Color(0xFFF1F5F9),
-    onBackground = Color(0xFF0F172A),
-    onSurface = Color(0xFF0F172A),
+    primary = Color(0xFF0F0C0A),          // Deep Brown/Black
+    onPrimary = Color(0xFFF5E6D8),
+    primaryContainer = Color(0xFF1A1410),
+    secondary = Color(0x66E89A5B),         // Soft Amber
+    onSecondary = Color(0xFFF5E6D8),
+    surface = Color(0xFF1A1410),
+    background = Color(0xFF1A1410),
+    onBackground = Color(0xFFF5E6D8),
+    onSurface = Color(0xFFF5E6D8),
 )
 
 @Composable

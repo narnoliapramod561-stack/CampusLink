@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -85,7 +88,8 @@ fun ChatScreen(
     )
 
     fun Modifier.glassmorphism() = this
-        .background(Color(0x33FFFFFF))
+        .background(Color(0x22F5E6D8), shape = RoundedCornerShape(24.dp))
+        .border(1.dp, Color(0x11FFFFFF), RoundedCornerShape(24.dp))
         .blur(20.dp)
 
     LaunchedEffect(userId) {
@@ -127,7 +131,7 @@ fun ChatScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1B3A6B)),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F0C0A)),
             )
         }
     ) { padding ->
@@ -135,21 +139,52 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFF0F172A)) // Deep space background
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF1A1410),
+                            Color(0xFF0F0C0A)
+                        )
+                    )
+                )
         ) {
-            // Dynamic Background Glow
+            // MAIN WARM LIGHT (cinematic glow)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF38BDF8).copy(alpha = glowAlpha))
-                    .blur(100.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0x66E89A5B).copy(alpha = glowAlpha), // amber glow
+                                Color.Transparent
+                            ),
+                            center = Offset(700f, 500f),
+                            radius = 900f
+                        )
+                    )
+            )
+
+            // SECONDARY LIGHT (soft depth)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0x33C97A3A),
+                                Color.Transparent
+                            ),
+                            center = Offset(200f, 1000f),
+                            radius = 1000f
+                        )
+                    )
             )
 
             Column(modifier = Modifier.fillMaxSize()) {
                 // Connection Status Bar
                 Surface(
-                    color = Color.Black.copy(alpha = 0.4f),
-                    modifier = Modifier.fillMaxWidth().glassmorphism()
+                    color = Color.Transparent,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).glassmorphism()
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -164,7 +199,7 @@ fun ChatScreen(
                         )
                         Text(
                             text = "Network: $activeNodes devices",
-                            color = Color(0xFF94A3B8),
+                            color = Color(0xFFA89B8F),
                             fontSize = 12.sp
                         )
                     }
@@ -193,12 +228,11 @@ fun ChatScreen(
                         ambientColor = Color.Black.copy(0.4f),
                         spotColor = Color.Black.copy(0.4f)
                     )
-                    .glassmorphism()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xEEFFFFFF))
+                        .glassmorphism()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -206,11 +240,13 @@ fun ChatScreen(
                         value = messageText,
                         onValueChange = viewModel::onMessageTextChange,
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Type a message...") },
+                        placeholder = { Text("Type a message...", color = Color(0xFFA89B8F)) },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF38BDF8),
-                            unfocusedBorderColor = Color(0xFFE2E8F0)
+                            focusedBorderColor = Color(0x66E89A5B),
+                            unfocusedBorderColor = Color(0x22F5E6D8),
+                            focusedTextColor = Color(0xFFF5E6D8),
+                            unfocusedTextColor = Color(0xFFF5E6D8)
                         ),
                         maxLines = 4
                     )
@@ -220,12 +256,12 @@ fun ChatScreen(
                             .padding(start = 8.dp)
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF38BDF8))
+                            .background(Color(0x66E89A5B))
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = Color.White
+                            tint = Color(0xFFF5E6D8)
                         )
                     }
                 }
@@ -267,13 +303,13 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
                     )
                 )
                 .background(
-                    if (isMyMessage) Color(0xFF38BDF8) else Color(0xFFFFFFFF)
+                    if (isMyMessage) Color(0xFF2A1F18) else Color(0xFF1A1410)
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Text(
                 text = message.content,
-                color = if (isMyMessage) Color.White else Color(0xFF0F172A),
+                color = Color(0xFFF5E6D8),
                 fontSize = 15.sp
             )
         }
@@ -284,7 +320,7 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
                 if (simulatedLatency != null) {
                     Text(
                         text = "Latency: ${simulatedLatency}ms • ",
-                        color = Color(0xFF94A3B8),
+                        color = Color(0xFFA89B8F),
                         fontSize = 10.sp
                     )
                 }
@@ -298,11 +334,11 @@ fun MessageBubble(message: Message, isMyMessage: Boolean) {
                     else -> ""
                 }
                 val statusColor = when (message.status) {
-                    MessageStatus.SENDING.name -> Color(0xFF94A3B8)
-                    MessageStatus.RELAYED.name -> Color(0xFFFDE047)
+                    MessageStatus.SENDING.name -> Color(0xFFA89B8F)
+                    MessageStatus.RELAYED.name -> Color(0x66E89A5B)
                     MessageStatus.DELIVERED.name -> Color(0xFF34D399)
                     MessageStatus.PENDING.name -> Color(0xFFF97316)
-                    else -> Color(0xFF94A3B8)
+                    else -> Color(0xFFA89B8F)
                 }
                 Text(
                     text = statusText,

@@ -35,14 +35,12 @@ class BluetoothManager @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
-    private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>() // key = MAC address
+    private val connectedThreads = ConcurrentHashMap<String, ConnectedThread>()
     private val connectedAddresses: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
-    // FIX: Expose the set of currently connected userIds so NearbyViewModel
-    // can show ONLY users who are physically in range right now, not stale DB rows.
     private val _connectedUserIds = MutableStateFlow<Set<String>>(emptySet())
     val connectedUserIds: StateFlow<Set<String>> = _connectedUserIds.asStateFlow()
 
@@ -57,15 +55,34 @@ class BluetoothManager @Inject constructor(
 
     init {
         relayEngine.allThreads = { connectedThreads.values.toList() }
+
+        // ── BUG FIX (Critical) ────────────────────────────────────────────────
+        // Previously, relayEngine.bluetoothManager was set only in
+        // BluetoothForegroundService.onStartCommand. But HomeViewModel.init
+        // calls bluetoothManager.start() via a coroutine that can win the race.
+        // When it does, HANDSHAKEs arrive with relayEngine.bluetoothManager == null,
+        // so onPeerIdentified() is never called, _connectedUserIds stays empty,
+        // and the Nearby screen never shows any user.
+        //
+        // Fix: set it HERE, in the init block, which runs at construction time —
+        // guaranteed before any HANDSHAKE can ever arrive, regardless of who
+        // calls start() first.
+        // ─────────────────────────────────────────────────────────────────────
+        relayEngine.bluetoothManager = this
     }
 
     fun start() {
         if (!startGuard.compareAndSet(false, true)) {
-            CampusLog.d("BTManager", "start() already running — ignored")
+            CampusLog.d("BTManager", "start() called while already running — ignored")
             return
         }
+
         scope.launch {
-            myUserId = sessionManager.getUserId() ?: run { startGuard.set(false); return@launch }
+            myUserId = sessionManager.getUserId() ?: run {
+                startGuard.set(false)
+                CampusLog.e("BTManager", "No userId in session — cannot start")
+                return@launch
+            }
             myUsername = sessionManager.getUsername() ?: myUserId
             myZone = sessionManager.getZone()
             myRole = sessionManager.getRole()
@@ -75,32 +92,24 @@ class BluetoothManager @Inject constructor(
             relayEngine.myZone = myZone
             _isRunning.value = true
 
-            CampusLog.d("BTManager", "Starting — userId=$myUserId zone=$myZone")
+            CampusLog.d("BTManager", "Started — userId=$myUserId zone=$myZone role=$myRole")
 
-            // Pass the userId to the new advertising method
-            bleDiscovery.startAdvertising(myUserId)
+            // BLE discovery: advertise our presence + scan for peers
+            bleDiscovery.startAdvertising()
             bleDiscovery.startScanning()
 
+            // Collect discovered peer MACs and initiate RFCOMM connections
             launch {
-                bleDiscovery.discoveredPeers.collect { peer ->
-                    if (!connectedAddresses.contains(peer.mac)) {
-                        CampusLog.d("BTManager", "Discovered peer: ${peer.userId} at ${peer.mac}")
-                        connectedAddresses.add(peer.mac)
-                        
-                        // 1. Immediately push them to the UI so you get the "Option to Connect"
-                        repository.upsertUser(com.campuslink.domain.model.User(
-                            userId = peer.userId,
-                            username = "Discovered Device", // This will be overwritten with their real name upon Handshake
-                            deviceAddress = peer.mac,
-                            isOnline = false // False means they are discovered but not yet handshaked
-                        ))
-
-                        // 2. Attempt the background connection
-                        connectTo(peer.mac)
+                bleDiscovery.discoveredMacs.collect { mac ->
+                    if (!connectedAddresses.contains(mac)) {
+                        CampusLog.d("BTManager", "New peer MAC discovered: $mac — connecting...")
+                        connectedAddresses.add(mac)
+                        connectTo(mac)
                     }
                 }
             }
 
+            // RFCOMM server — accepts incoming connections from peers
             serverThread = ServerThread(bluetoothAdapter, scope) { socket ->
                 registerSocket(socket)
             }
@@ -116,7 +125,7 @@ class BluetoothManager @Inject constructor(
             onConnected = { socket -> registerSocket(socket) },
             onFailed = { failedMac ->
                 connectedAddresses.remove(failedMac)
-                CampusLog.w("BTManager", "Connection failed to $failedMac — will retry on rediscovery")
+                CampusLog.w("BTManager", "RFCOMM connect failed to $failedMac — will retry on BLE rediscovery")
             }
         ).start()
     }
@@ -125,7 +134,7 @@ class BluetoothManager @Inject constructor(
         val addr = socket.remoteDevice.address
 
         if (connectedThreads.containsKey(addr)) {
-            CampusLog.d("BTManager", "Already have connection to $addr — closing duplicate")
+            CampusLog.d("BTManager", "Already connected to $addr — closing duplicate socket")
             try { socket.close() } catch (_: Exception) {}
             return
         }
@@ -138,42 +147,41 @@ class BluetoothManager @Inject constructor(
                 connectedThreads.remove(dead.deviceAddress)
                 connectedAddresses.remove(dead.deviceAddress)
 
-                // FIX: Remove this user from the live connected set so they
-                // disappear from the Nearby screen immediately.
+                // Remove from live set — Nearby screen updates immediately
                 val disconnectedUserId = dead.remoteUserId
                 if (disconnectedUserId.isNotBlank()) {
                     _connectedUserIds.update { it - disconnectedUserId }
                 }
 
                 scope.launch {
-                    // FIX: Mark user offline in DB so isOnline=false persists.
-                    // Without this, a user who walked away stayed "In range" forever.
                     if (disconnectedUserId.isNotBlank()) {
                         repository.setUserOnline(disconnectedUserId, false)
                     }
                     repository.onNodeDisconnected()
                 }
-                CampusLog.d("BTManager", "Peer disconnected: $addr userId=$disconnectedUserId | remaining=${connectedThreads.size}")
+                CampusLog.d("BTManager", "Peer disconnected: $addr ($disconnectedUserId) | remaining=${connectedThreads.size}")
             }
         )
 
         connectedThreads[addr] = thread
-        CampusLog.d("BTManager", "Registered peer: $addr | total=${connectedThreads.size}")
+        CampusLog.d("BTManager", "Registered peer socket: $addr | total=${connectedThreads.size}")
 
-        // Send our identity so the peer can register us and vice versa
+        // Immediately send our identity — peer will respond with their HANDSHAKE
         val hs = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address, myZone, myRole, myDept)
         thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(hs)))
     }
 
-    // Called from RelayEngine when a HANDSHAKE packet is received from a peer.
-    // This is the moment we learn the peer's userId from their MAC address.
+    // Called by RelayEngine when a HANDSHAKE packet is received.
+    // This is the moment we know which userId is behind a given MAC.
+    // Adding to _connectedUserIds makes the peer appear in the Nearby screen.
     fun onPeerIdentified(macAddress: String, userId: String) {
-        val thread = connectedThreads[macAddress] ?: return
+        val thread = connectedThreads[macAddress] ?: run {
+            CampusLog.w("BTManager", "onPeerIdentified: no thread for $macAddress")
+            return
+        }
         thread.remoteUserId = userId
-
-        // FIX: Add to live connected set — this makes them appear in Nearby immediately
         _connectedUserIds.update { it + userId }
-        CampusLog.d("BTManager", "Peer identified: $macAddress → $userId | online set: ${_connectedUserIds.value}")
+        CampusLog.d("BTManager", "Peer identified: $macAddress → $userId | connectedIds=${_connectedUserIds.value}")
     }
 
     fun sendMessage(msg: Message) {
@@ -185,12 +193,12 @@ class BluetoothManager @Inject constructor(
                 MessageTargetType.USER.name -> {
                     val target = relayEngine.getBestThread(msg.receiverId)
                     if (target != null) {
-                        CampusLog.d("BTManager", "Sending ${msg.messageId} direct to ${msg.receiverId}")
+                        CampusLog.d("BTManager", "Direct send ${msg.messageId} to ${msg.receiverId}")
                         relayEngine.sendWithRetry(pkt, target)
                         return@launch
                     }
                     if (threads.isEmpty()) {
-                        CampusLog.w("BTManager", "No peers — storing ${msg.messageId} as PENDING")
+                        CampusLog.w("BTManager", "No peers — queuing ${msg.messageId} as PENDING")
                         repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
                     } else {
                         CampusLog.d("BTManager", "Flooding ${msg.messageId} to ${threads.size} peers")
@@ -208,13 +216,14 @@ class BluetoothManager @Inject constructor(
     fun stop() {
         _isRunning.value = false
         startGuard.set(false)
-        // FIX: Mark all currently connected users offline when Bluetooth stops
+
         scope.launch {
             _connectedUserIds.value.forEach { userId ->
                 repository.setUserOnline(userId, false)
             }
         }
         _connectedUserIds.value = emptySet()
+
         bleDiscovery.stopAll()
         serverThread?.stop()
         connectedThreads.values.forEach { it.disconnect() }

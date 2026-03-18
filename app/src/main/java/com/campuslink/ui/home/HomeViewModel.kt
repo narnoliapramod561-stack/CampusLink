@@ -58,18 +58,41 @@ class HomeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             _myUserId.value = sessionManager.getUserId() ?: ""
-            // FIX: Start the network engine once user is confirmed logged in.
-            // BluetoothManager's AtomicBoolean start guard prevents any double-start
-            // bugs if the ForegroundService also calls start() — second call is a no-op.
-            if (_myUserId.value.isNotBlank()) {
-                bluetoothManager.start()
-            }
+
+            // ── BUG FIX ────────────────────────────────────────────────────
+            // Removed bluetoothManager.start() from here.
+            //
+            // BluetoothForegroundService.onStartCommand is the ONLY authoritative
+            // place to call start(). It runs on the main thread immediately when
+            // the service starts, guaranteeing relayEngine.bluetoothManager is
+            // set before any BLE discovery or RFCOMM connections begin.
+            //
+            // Having HomeViewModel also call start() created a race:
+            //   - If ViewModel wins: service later calls start() (no-op due to
+            //     AtomicBoolean guard) BUT relayEngine.bluetoothManager was already
+            //     null during the first connections → Nearby screen stayed empty.
+            //
+            // The AtomicBoolean guard in BluetoothManager ensures the service's
+            // start() call is always a safe no-op if Bluetooth already running.
+            // The FIX in BluetoothManager.init (relayEngine.bluetoothManager = this)
+            // means this race no longer matters, but removing the call here is
+            // still cleaner architecture.
+            // ──────────────────────────────────────────────────────────────
         }
     }
 
-    fun openDialog() { _dialogInput.value = ""; _dialogError.value = null; _showDialog.value = true }
+    fun openDialog() {
+        _dialogInput.value = ""
+        _dialogError.value = null
+        _showDialog.value = true
+    }
+
     fun dismissDialog() { _showDialog.value = false }
-    fun onDialogInput(v: String) { _dialogInput.value = v; _dialogError.value = null }
+
+    fun onDialogInput(v: String) {
+        _dialogInput.value = v
+        _dialogError.value = null
+    }
 
     fun confirmConnect() {
         val id = _dialogInput.value.trim()
@@ -87,6 +110,7 @@ class HomeViewModel @Inject constructor(
 
     fun onNavigated() { _navigate.value = null }
 
+    // Only restart if Bluetooth was explicitly stopped
     fun refresh() {
         if (!bluetoothManager.isRunning.value) bluetoothManager.start()
     }

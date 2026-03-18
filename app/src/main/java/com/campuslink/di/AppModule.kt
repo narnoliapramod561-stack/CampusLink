@@ -28,9 +28,12 @@ object AppModule {
     
     @Provides @Singleton
     fun provideAppDatabase(@ApplicationContext ctx: Context): AppDatabase =
-        Room.databaseBuilder(ctx, AppDatabase::class.java, "campuslink.db").build()
+        Room.databaseBuilder(ctx, AppDatabase::class.java, "campuslink.db")
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .build()
         
     @Provides fun provideMessageDao(db: AppDatabase) = db.messageDao()
     @Provides fun provideUserDao(db: AppDatabase)    = db.userDao()
     @Provides fun providePerfLogDao(db: AppDatabase) = db.performanceLogDao()
+    @Provides fun provideGroupDao(db: AppDatabase)   = db.groupDao()
 }

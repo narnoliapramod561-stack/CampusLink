@@ -14,6 +14,10 @@ import javax.inject.Inject
 class AuthViewModel @Inject constructor(private val sessionManager: SessionManager) : ViewModel() {
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
+    
+    val zone = MutableStateFlow(com.campuslink.domain.model.LpuZone.BLOCK_32.name)
+    val role = MutableStateFlow(com.campuslink.domain.model.UserRole.STUDENT.name)
+    val department = MutableStateFlow("")
 
     init {
         viewModelScope.launch {
@@ -21,10 +25,14 @@ class AuthViewModel @Inject constructor(private val sessionManager: SessionManag
         }
     }
 
+    fun onZone(z: String) { zone.value = z }
+    fun onRole(r: String) { role.value = r }
+    fun onDepartment(d: String) { department.value = d }
+
     fun login(username: String) {
         viewModelScope.launch {
             val userId = UUID.randomUUID().toString().take(8)
-            sessionManager.saveUser(userId, username)
+            sessionManager.saveProfile(userId, username, zone.value, role.value, department.value)
             _isLoggedIn.value = true
         }
     }

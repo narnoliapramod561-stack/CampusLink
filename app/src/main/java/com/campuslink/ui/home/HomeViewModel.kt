@@ -42,6 +42,8 @@ class HomeViewModel @Inject constructor(
     val dialogError: StateFlow<String?> = _dialogError.asStateFlow()
     private val _navigate = MutableStateFlow<Pair<String,String>?>(null)
     val navigate: StateFlow<Pair<String,String>?> = _navigate.asStateFlow()
+    
+    val settingsFlow: Flow<AppSettings> = sessionManager.settings
 
     init { 
         viewModelScope.launch { 

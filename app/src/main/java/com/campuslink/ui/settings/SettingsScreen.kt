@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import com.campuslink.domain.model.LpuZone
+import com.campuslink.domain.model.UserRole
 import com.campuslink.ui.theme.*
 import com.campuslink.ui.components.*
 
@@ -25,14 +27,16 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
     val settings by viewModel.settings.collectAsState()
     val userId by viewModel.userId.collectAsState()
     val username by viewModel.username.collectAsState()
+    val zone by viewModel.zone.collectAsState()
+    val role by viewModel.role.collectAsState()
+    val dept by viewModel.department.collectAsState()
 
     Column(Modifier.fillMaxSize().background(CL.BgDeep)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Settings & Profile", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-            // SECTION 1 — Profile card
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth().glassCard(20).padding(16.dp),
@@ -42,9 +46,24 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                     Spacer(Modifier.height(8.dp))
                     Text(username, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("@$userId", color = TextSecondary, fontSize = 13.sp)
-                    Spacer(Modifier.height(12.dp))
+                    
+                    Spacer(Modifier.height(16.dp))
+                    
+                    val parsedRole = try { UserRole.valueOf(role) } catch(e: Exception) { UserRole.STUDENT }
+                    val parsedZone = LpuZone.fromName(zone)
+                    
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        ProfileBadge("Role", "${parsedRole.emoji} ${parsedRole.displayName}")
+                        ProfileBadge("Zone", "${parsedZone.emoji} ${parsedZone.displayName}")
+                    }
+                    if (dept.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(dept, color = TealAccent, fontSize = 13.sp)
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
                     Button(
-                        onClick = { /* Not implemented */ },
+                        onClick = { /* Not implemented for demo */ },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         border = BorderStroke(1.dp, TealAccent),
                         shape = RoundedCornerShape(8.dp)
@@ -54,42 +73,49 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                 }
             }
 
-            item { SectionLabel("NETWORK") }
+            item { SectionLabel("NETWORK PIPELINES") }
             item {
                 Column(Modifier.glassCard(20).padding(4.dp)) {
                     GlassSettingsRow(
-                        icon = Icons.Default.WifiTethering, 
-                        title = "Auto-connect", 
-                        subtitle = "Automatically connect to nearby peers",
+                        icon = Icons.Default.BatterySaver, 
+                        title = "Battery Saver Mode", 
+                        subtitle = "Reduce relay power consumption",
                         trailing = {
                             Switch(
-                                checked = settings.autoConnect, 
-                                onCheckedChange = { viewModel.updateSettings(settings.copy(autoConnect = it)) },
+                                checked = settings.batterySaverMode, 
+                                onCheckedChange = { viewModel.updateSettings(settings.copy(batterySaverMode = it)) },
                                 colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.5f))
                             )
                         }
                     )
-                    // Hops Slider
-                    Column(Modifier.padding(16.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Max Hops", color = Color.White, fontSize = 15.sp)
-                            Badge(containerColor = TealAccent.copy(0.15f)) { Text("${settings.maxHops}", color = TealAccent) }
+                    GlassSettingsRow(
+                        icon = Icons.Default.Timeline, 
+                        title = "Adaptive TTL", 
+                        subtitle = "Dynamic routing based on peer density",
+                        trailing = {
+                            Switch(
+                                checked = settings.adaptiveTtl, 
+                                onCheckedChange = { viewModel.updateSettings(settings.copy(adaptiveTtl = it)) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.5f))
+                            )
                         }
-                        Slider(value = settings.maxHops.toFloat(), onValueChange = { viewModel.updateSettings(settings.copy(maxHops = it.toInt())) },
-                            valueRange = 1f..10f, colors = SliderDefaults.colors(thumbColor = TealAccent, activeTrackColor = TealAccent))
-                    }
+                    )
                 }
             }
 
-            item { SectionLabel("SECURITY") }
+            item { SectionLabel("SIMULATION") }
             item {
                 Column(Modifier.glassCard(20).padding(4.dp)) {
                     GlassSettingsRow(
-                        icon = Icons.Default.Lock, 
-                        title = "Encryption", 
-                        subtitle = "Coming in v2.0 — AES-256",
+                        icon = Icons.Default.Science, 
+                        title = "Dev: LPU Demo Mode", 
+                        subtitle = "Inject 5 virtual LPU users into mesh",
                         trailing = {
-                            StatusBadge("PLANNED", false) // isSuccess = false for planned
+                            Switch(
+                                checked = settings.demoMode, 
+                                onCheckedChange = { viewModel.toggleDemoMode(it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = AmberGlow, checkedTrackColor = AmberGlow.copy(alpha = 0.5f))
+                            )
                         }
                     )
                 }
@@ -110,6 +136,16 @@ fun SettingsScreen(navController: NavHostController, viewModel: SettingsViewMode
                 }
             }
             item { Spacer(Modifier.height(32.dp)) }
+        }
+    }
+}
+
+@Composable
+fun ProfileBadge(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = TextHint, fontSize = 11.sp)
+        Box(Modifier.background(WarmBlack.copy(0.5f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

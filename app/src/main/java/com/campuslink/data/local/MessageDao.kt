@@ -29,4 +29,28 @@ import kotlinx.coroutines.flow.Flow
         ) ORDER BY timestamp DESC
     """)
     fun getConversationPreviews(myUserId: String): Flow<List<Message>>
+
+    // Messages for a zone (ZONE type, targetValue = zone name)
+    @Query("SELECT * FROM messages WHERE targetType='ZONE' AND receiverId=:zone ORDER BY timestamp DESC LIMIT 100")
+    fun getZoneMessages(zone: String): Flow<List<Message>>
+
+    // Broadcast messages (BROADCAST type)
+    @Query("SELECT * FROM messages WHERE targetType='BROADCAST' ORDER BY timestamp DESC LIMIT 50")
+    fun getBroadcasts(): Flow<List<Message>>
+
+    // Group messages
+    @Query("SELECT * FROM messages WHERE targetType='GROUP' AND groupId=:groupId ORDER BY timestamp ASC")
+    fun getGroupMessages(groupId: String): Flow<List<Message>>
+
+    // Unread count per partner
+    @Query("SELECT COUNT(*) FROM messages WHERE receiverId=:myId AND status!='DELIVERED' AND senderId=:partnerId")
+    fun getUnreadCount(myId: String, partnerId: String): Flow<Int>
+
+    // Emergency messages received
+    @Query("SELECT * FROM messages WHERE priority='EMERGENCY' AND receiverId=:myId ORDER BY timestamp DESC")
+    fun getEmergencyMessages(myId: String): Flow<List<Message>>
+
+    // All PENDING messages (for admin to see queued)
+    @Query("SELECT * FROM messages WHERE status='PENDING' ORDER BY timestamp ASC")
+    fun getAllPending(): Flow<List<Message>>
 }

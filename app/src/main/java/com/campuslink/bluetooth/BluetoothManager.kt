@@ -39,7 +39,9 @@ class BluetoothManager @Inject constructor(
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
     private var serverThread: ServerThread? = null
+    
     private var myUserId = ""; private var myUsername = ""
+    private var myZone = "BLOCK_32"; private var myRole = "STUDENT"; private var myDept = ""
 
     init { relayEngine.allThreads = { connectedThreads.values.toList() } }
 
@@ -47,8 +49,14 @@ class BluetoothManager @Inject constructor(
         scope.launch {
             myUserId = sessionManager.getUserId() ?: return@launch
             myUsername = sessionManager.getUsername() ?: myUserId
+            myZone = sessionManager.getZone()
+            myRole = sessionManager.getRole()
+            myDept = sessionManager.getDept()
+            
             relayEngine.myUserId = myUserId
+            relayEngine.myZone = myZone
             _isRunning.value = true
+            
             bleDiscovery.startAdvertising(); bleDiscovery.startScanning()
             launch { bleDiscovery.discoveredMacs.collect { mac ->
                 if (!connectedAddresses.contains(mac) && mac != bluetoothAdapter.address) {
@@ -68,7 +76,6 @@ class BluetoothManager @Inject constructor(
         ).start()
     }
 
-    // Proper cleanup on disconnect
     private fun registerThread(incoming: ConnectedThread) {
         val thread = ConnectedThread(incoming.socket, scope, relayEngine) { dead ->
             connectedThreads.remove(dead.deviceAddress)
@@ -77,20 +84,30 @@ class BluetoothManager @Inject constructor(
             CampusLog.d("BTManager","Removed ${dead.deviceAddress} active=${connectedThreads.size}")
         }
         connectedThreads[thread.deviceAddress] = thread
-        val hs = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address)
+        
+        val hs = HandshakePayload(myUserId, myUsername, bluetoothAdapter.address, myZone, myRole, myDept)
         thread.enqueue(Packet(PacketType.HANDSHAKE.name, gson.toJson(hs)))
         CampusLog.d("BTManager","Registered ${thread.deviceAddress} total=${connectedThreads.size}")
     }
 
     fun sendMessage(msg: Message) {
-        val target = connectedThreads.values.find { it.remoteUserId == msg.receiverId }
-        val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(msg))
         scope.launch {
-            if (target != null) relayEngine.sendWithRetry(pkt, target)
-            else {
-                val threads = connectedThreads.values.toList()
-                if (threads.isEmpty()) repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
-                else threads.forEach { it.enqueue(pkt) }
+            val pkt = Packet(PacketType.MESSAGE.name, gson.toJson(msg))
+            val threads = connectedThreads.values.toList()
+            
+            if (msg.targetType == com.campuslink.domain.model.MessageTargetType.USER.name) {
+                val target = relayEngine.getBestThread(msg.receiverId)
+                if (target != null) {
+                    relayEngine.sendWithRetry(pkt, target)
+                    return@launch
+                }
+            }
+            
+            // Flood to all for ZONE, BROADCAST, GROUP, or un-cached USER
+            if (threads.isEmpty()) {
+                repository.storePendingMessage(msg.copy(status = MessageStatus.PENDING.name))
+            } else {
+                threads.forEach { it.enqueue(pkt) }
             }
         }
     }

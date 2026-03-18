@@ -3,6 +3,7 @@ package com.campuslink.data.repository
 import com.campuslink.data.local.MessageDao
 import com.campuslink.data.local.PerformanceLogDao
 import com.campuslink.data.local.UserDao
+import com.campuslink.data.local.GroupDao
 import com.campuslink.domain.model.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -12,7 +13,8 @@ import javax.inject.Singleton
 class ChatRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val userDao: UserDao,
-    private val perfLogDao: PerformanceLogDao
+    private val perfLogDao: PerformanceLogDao,
+    private val groupDao: GroupDao
 ) {
     private val _stats = MutableStateFlow(NetworkStats())
     val networkStats: StateFlow<NetworkStats> = _stats.asStateFlow()
@@ -25,8 +27,17 @@ class ChatRepository @Inject constructor(
             msgs.map { msg ->
                 val pid = if (msg.senderId == myUserId) msg.receiverId else msg.senderId
                 val p = userMap[pid]
-                ConversationPreview(pid, p?.username ?: pid, msg.content, msg.timestamp, p?.isOnline ?: false)
-            }
+                val hasEmergency = msg.priority == "EMERGENCY"
+                ConversationPreview(
+                    partnerId = pid,
+                    partnerName = p?.username ?: pid,
+                    lastMessage = msg.content,
+                    lastTimestamp = msg.timestamp,
+                    isOnline = p?.isOnline ?: false,
+                    hasEmergency = hasEmergency,
+                    partnerZone = p?.zone ?: ""
+                )
+            }.sortedWith(compareByDescending<ConversationPreview> { it.hasEmergency }.thenByDescending { it.lastTimestamp })
         }
 
     fun getRecentLogs(): Flow<List<PerformanceLog>> = perfLogDao.getRecent()
@@ -84,4 +95,28 @@ class ChatRepository @Inject constructor(
     fun onNodeConnected() = _stats.update { it.copy(activeNodes = it.activeNodes + 1) }
     fun onNodeDisconnected() = _stats.update { it.copy(activeNodes = maxOf(0, it.activeNodes - 1)) }
     suspend fun clearLogs() { perfLogDao.clearAll() }
+
+    // Zone messages
+    fun getZoneMessages(zone: String): Flow<List<Message>> = messageDao.getZoneMessages(zone)
+
+    // Broadcasts
+    fun getBroadcasts(): Flow<List<Message>> = messageDao.getBroadcasts()
+
+    // Groups
+    suspend fun upsertGroup(group: LpuGroup) = groupDao.upsert(group)
+    fun getAllGroups(): Flow<List<LpuGroup>> = groupDao.getAll()
+    suspend fun getGroupById(id: String): LpuGroup? = groupDao.getById(id)
+
+    // Zone presence
+    fun getUsersInZone(zone: String): Flow<List<User>> = userDao.getUsersInZone(zone)
+
+    // Reliability score update
+    suspend fun incrementRelayCount(userId: String) {
+        val user = userDao.getById(userId) ?: return
+        val newScore = minOf(1.0f, (user.reliabilityScore * user.messagesRelayed + 1.0f) / (user.messagesRelayed + 1))
+        userDao.updateReliability(userId, newScore)
+    }
+
+    // Pending/emergency for analytics
+    fun getAllPending(): Flow<List<Message>> = messageDao.getAllPending()
 }

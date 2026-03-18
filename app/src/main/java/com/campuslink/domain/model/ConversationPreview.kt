@@ -6,5 +6,7 @@ data class ConversationPreview(
     val lastMessage: String,
     val lastTimestamp: Long,
     val isOnline: Boolean = false,
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    val hasEmergency: Boolean = false,
+    val partnerZone: String = ""
 )

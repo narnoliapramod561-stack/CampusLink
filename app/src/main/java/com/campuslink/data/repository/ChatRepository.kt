@@ -2,11 +2,14 @@ package com.campuslink.data.repository
 
 import com.campuslink.data.local.MessageDao
 import com.campuslink.data.local.UserDao
+import com.campuslink.domain.model.ConversationPreview
 import com.campuslink.domain.model.Message
 import com.campuslink.domain.model.MessageStatus
 import com.campuslink.domain.model.NetworkStats
 import com.campuslink.domain.model.User
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +27,44 @@ class ChatRepository @Inject constructor(
 
     val messages: Flow<List<Message>> = messageDao.getAll()
     val users: Flow<List<User>> = userDao.getAll()
+
+    // ── Conversation previews (WhatsApp-style list) ───────────────────────
+    // Combines the latest message per partner with the User table to get
+    // display names and online status. Emits whenever either table changes.
+    fun getConversationPreviews(myUserId: String): Flow<List<ConversationPreview>> =
+        combine(
+            messageDao.getConversationPreviews(myUserId),
+            userDao.getAll()
+        ) { latestMessages, allUsers ->
+            val userMap = allUsers.associateBy { it.userId }
+            latestMessages.map { msg ->
+                val partnerId = if (msg.senderId == myUserId) msg.receiverId else msg.senderId
+                val partner = userMap[partnerId]
+                ConversationPreview(
+                    partnerId    = partnerId,
+                    partnerName  = partner?.username ?: partnerId,
+                    lastMessage  = msg.content,
+                    lastTimestamp = msg.timestamp,
+                    isOnline     = partner?.isOnline ?: false
+                )
+            }
+        }
+
+    // ── Ensure a user record exists even if never discovered via BLE ──────
+    // Called when user manually types a UserID to start a chat.
+    // Creates a minimal offline User so the conversation shows in the list.
+    suspend fun ensureUserExists(userId: String) {
+        if (userDao.getById(userId) == null) {
+            userDao.upsert(
+                User(
+                    userId        = userId,
+                    username      = userId,   // display as userId until they handshake
+                    deviceAddress = "",
+                    isOnline      = false
+                )
+            )
+        }
+    }
 
     suspend fun saveMessage(msg: Message) {
         messageDao.upsert(msg)
@@ -58,6 +99,6 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    fun onNodeConnected() = _stats.update { it.copy(activeNodes = it.activeNodes + 1) }
+    fun onNodeConnected()    = _stats.update { it.copy(activeNodes = it.activeNodes + 1) }
     fun onNodeDisconnected() = _stats.update { it.copy(activeNodes = maxOf(0, it.activeNodes - 1)) }
 }

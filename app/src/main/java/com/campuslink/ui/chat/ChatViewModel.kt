@@ -61,6 +61,10 @@ class ChatViewModel @Inject constructor(
 
     // --- SIMULATION LAYER ---
     var simulationMode = true
+        set(value) {
+            field = value
+            bluetoothManager.setSimulationMode(value)
+        }
     private val simA = com.campuslink.simulation.VirtualDevice("A")
     private val simB = com.campuslink.simulation.VirtualDevice("B")
     private val simC = com.campuslink.simulation.VirtualDevice("C")

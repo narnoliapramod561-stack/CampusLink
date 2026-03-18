@@ -1,34 +1,70 @@
 package com.campuslink.ui.home
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.campuslink.domain.model.ConversationPreview
 import com.campuslink.domain.model.NetworkStats
 import com.campuslink.domain.model.User
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,25 +72,53 @@ fun HomeScreen(
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val users by viewModel.users.collectAsState()
-    val stats by viewModel.networkStats.collectAsState()
-    val isRunning by viewModel.isBluetoothRunning.collectAsState()
-    val myId by viewModel.myUserId.collectAsState()
-    val simState by viewModel.simState.collectAsState()
+    val conversations   by viewModel.conversations.collectAsState()
+    val nearbyUsers     by viewModel.nearbyUsers.collectAsState()
+    val stats           by viewModel.networkStats.collectAsState()
+    val isRunning       by viewModel.isBluetoothRunning.collectAsState()
+    val myId            by viewModel.myUserId.collectAsState()
+    val showDialog      by viewModel.showConnectDialog.collectAsState()
+    val connectInput    by viewModel.connectInput.collectAsState()
+    val connectError    by viewModel.connectError.collectAsState()
+    val navigateToChat  by viewModel.navigateToChat.collectAsState()
 
-    val otherUsers = users.filter { it.userId != myId }
+    // Handle navigation triggered by manual connect
+    LaunchedEffect(navigateToChat) {
+        navigateToChat?.let { (userId, username) ->
+            navController.navigate("chat/$userId/$username")
+            viewModel.onNavigatedToChat()
+        }
+    }
+
+    var selectedTab by remember { mutableStateOf(0) }
+    val otherNearby = nearbyUsers.filter { it.userId != myId }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("CampusLink", fontWeight = FontWeight.Bold, color = Color.White) },
+                title = {
+                    Column {
+                        Text("CampusLink", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
+                        Text("Offline mesh messaging", color = Color(0xFFB0C4DE), fontSize = 11.sp)
+                    }
+                },
                 actions = {
+                    // Manual connect button in top bar
+                    IconButton(onClick = viewModel::openConnectDialog) {
+                        Icon(Icons.Default.Add, contentDescription = "New Chat", tint = Color.White)
+                    }
                     SuggestionChip(
                         onClick = {},
-                        label = { Text(if (isRunning) "● Bluetooth ON" else "● Bluetooth OFF", fontSize = 12.sp) },
+                        label = {
+                            Text(
+                                if (isRunning) "● ON" else "● OFF",
+                                fontSize = 11.sp
+                            )
+                        },
                         modifier = Modifier.padding(end = 8.dp),
                         colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = if (isRunning) Color(0xFFDCFCE7) else Color(0xFFFFE4E6)
+                            containerColor = if (isRunning) Color(0xFF16A34A).copy(alpha = 0.2f)
+                                             else Color(0xFFDC2626).copy(alpha = 0.2f)
                         )
                     )
                 },
@@ -63,10 +127,12 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = viewModel::refreshScan,
-                containerColor = Color(0xFF1B3A6B)
+                onClick = viewModel::openConnectDialog,
+                containerColor = Color(0xFF0F766E),
+                contentColor = Color.White,
+                shape = CircleShape
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Scan", tint = Color.White)
+                Icon(Icons.Default.Add, contentDescription = "New Chat")
             }
         }
     ) { padding ->
@@ -74,255 +140,405 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(Color(0xFFF1F5F9))
         ) {
-            // Stats row
-            StatsRow(stats, modifier = Modifier.padding(16.dp))
+            // Stats bar
+            StatsBar(stats)
 
-            // --- SIMULATION DEMO SECTION ---
-            RelayDemoSection(simState, viewModel::startRelayDemo)
-            
-            Spacer(modifier = Modifier.height(8.dp))
+            // Tabs: Chats | Nearby
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White),
+            ) {
+                listOf("Chats (${conversations.size})", "Nearby (${otherNearby.size})").forEachIndexed { i, title ->
+                    Tab(
+                        selected = selectedTab == i,
+                        onClick = { selectedTab = i },
+                        modifier = Modifier.weight(1f),
+                        text = {
+                            Text(
+                                title,
+                                fontWeight = if (selectedTab == i) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 13.sp,
+                                color = if (selectedTab == i) Color(0xFF1B3A6B) else Color(0xFF64748B)
+                            )
+                        }
+                    )
+                }
+            }
+            Divider(color = Color(0xFFE2E8F0))
 
+            when (selectedTab) {
+                0 -> ChatsTab(
+                    conversations = conversations,
+                    myId = myId,
+                    onChatClick = { conv ->
+                        navController.navigate("chat/${conv.partnerId}/${conv.partnerName}")
+                    },
+                    onNewChat = viewModel::openConnectDialog
+                )
+                1 -> NearbyTab(
+                    users = otherNearby,
+                    onChatClick = { user ->
+                        navController.navigate("chat/${user.userId}/${user.username}")
+                    },
+                    onRefresh = viewModel::refreshScan
+                )
+            }
+        }
+    }
+
+    // Manual connect dialog
+    if (showDialog) {
+        ConnectByIdDialog(
+            input      = connectInput,
+            error      = connectError,
+            onChange   = viewModel::onConnectInputChange,
+            onConfirm  = viewModel::confirmConnect,
+            onDismiss  = viewModel::dismissConnectDialog
+        )
+    }
+}
+
+// ── Chats Tab (WhatsApp-style) ────────────────────────────────────────────────
+
+@Composable
+fun ChatsTab(
+    conversations: List<ConversationPreview>,
+    myId: String,
+    onChatClick: (ConversationPreview) -> Unit,
+    onNewChat: () -> Unit
+) {
+    if (conversations.isEmpty()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("💬", fontSize = 48.sp)
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Nearby Students",
+                "No conversations yet",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                color = Color(0xFF0F172A)
+                color = Color(0xFF334155)
             )
-
-            if (otherUsers.isEmpty() && !simState.isRunning) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(color = Color(0xFF1B3A6B))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Scanning for nearby students...", color = Color(0xFF64748B))
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(
-                        horizontal = 16.dp, vertical = 8.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(otherUsers) { user ->
-                        UserCard(user = user, onClick = {
-                            navController.navigate("chat/${user.userId}/${user.username}")
-                        })
-                    }
-                }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "Tap + to start a chat by User ID",
+                fontSize = 13.sp,
+                color = Color(0xFF64748B)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            TextButton(
+                onClick = onNewChat,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("New Chat", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            items(conversations, key = { it.partnerId }) { conv ->
+                ConversationRow(conv = conv, onClick = { onChatClick(conv) })
+                Divider(
+                    modifier = Modifier.padding(start = 76.dp),
+                    color = Color(0xFFE2E8F0),
+                    thickness = 0.5.dp
+                )
             }
         }
     }
 }
 
 @Composable
-fun RelayDemoSection(state: SimState, onStart: () -> Unit) {
-    Card(
+fun ConversationRow(conv: ConversationPreview, onClick: () -> Unit) {
+    val avatarColors = listOf(
+        Color(0xFF1B3A6B), Color(0xFF0F766E), Color(0xFF7C3AED),
+        Color(0xFFDC2626), Color(0xFFD97706)
+    )
+    val avatarColor = avatarColors[conv.partnerId.hashCode().and(0x7FFFFFFF) % avatarColors.size]
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .clickable { onClick() }
+            .background(Color.White)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF1B3A6B), modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Multi-Hop Relay Demo", fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                Spacer(modifier = Modifier.weight(1f))
-                if (!state.isRunning) {
-                    TextButton(onClick = onStart) {
-                        Text("Start Simulation", color = Color(0xFF1B3A6B), fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Visualizer Canvas
-            RelayVisualizer(state)
-
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            val statusText = when {
-                !state.isRunning -> "Press Start to see A ➔ B ➔ C ➔ D relay"
-                state.isAck -> "D ➔ C ➔ B ➔ A: Sending ACK back..."
-                else -> "${state.activeNode} ➔ Next: Forwarding message..."
-            }
+        // Avatar
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(avatarColor),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
-                text = statusText,
-                fontSize = 12.sp,
-                color = if (state.isRunning) Color(0xFF1B3A6B) else Color(0xFF64748B),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                text = conv.partnerName.take(1).uppercase(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
             )
         }
-    }
-}
 
-@Composable
-fun RelayVisualizer(state: SimState) {
-    val nodeColor = Color(0xFFE2E8F0)
-    val activeColor = Color(0xFF1B3A6B)
-    val packetColor = if (state.isAck) Color(0xFF16A34A) else Color(0xFF7C3AED)
+        Spacer(modifier = Modifier.width(14.dp))
 
-    Box(modifier = Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
-            val width = size.width
-            val centerY = size.height / 2
-            
-            // Draw Lines
-            drawLine(
-                color = nodeColor,
-                start = Offset(0f, centerY),
-                end = Offset(width, centerY),
-                strokeWidth = 2.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-            )
-
-            // Draw Nodes A, B, C, D
-            val nodes = listOf(0f, 0.33f, 0.66f, 1.0f)
-            val labels = listOf("A", "B", "C", "D")
-            
-            nodes.forEachIndexed { index, pos ->
-                val x = pos * width
-                val isActive = when(index) {
-                    0 -> state.activeNode == SimNode.A
-                    1 -> state.activeNode == SimNode.B
-                    2 -> state.activeNode == SimNode.C
-                    3 -> state.activeNode == SimNode.D
-                    else -> false
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = conv.partnerName,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = Color(0xFF0F172A)
+                )
+                Text(
+                    text = formatTime(conv.lastTimestamp),
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (conv.isOnline) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF16A34A))
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
                 }
-                
-                drawCircle(
-                    color = if (isActive) activeColor else nodeColor,
-                    radius = 12.dp.toPx(),
-                    center = Offset(x, centerY)
+                Text(
+                    text = conv.lastMessage,
+                    fontSize = 13.sp,
+                    color = Color(0xFF64748B),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-                
-                // Text labels would normally need native canvas access or separate Box, 
-                // but we'll stick to a simple circle visual for the nodes.
-            }
-
-            // Draw Packet during animation
-            if (state.isRunning && state.packetPos >= 0) {
-                drawCircle(
-                    color = packetColor,
-                    radius = 8.dp.toPx(),
-                    center = Offset(state.packetPos * width, centerY)
-                )
-            }
-        }
-        
-        // Overlay node labels
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp - 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            listOf("A", "B", "C", "D").forEach { label ->
-                Text(label, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
             }
         }
     }
 }
 
-@Composable
-fun StatsRow(stats: NetworkStats, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        StatCard("Nodes", stats.activeNodes.toString(), Color(0xFF1B3A6B), Modifier.weight(1f))
-        StatCard("Sent", stats.messagesSent.toString(), Color(0xFF0F766E), Modifier.weight(1f))
-        StatCard("Relayed", stats.messagesRelayed.toString(), Color(0xFF7C3AED), Modifier.weight(1f))
-        StatCard("Delivered", stats.messagesDelivered.toString(), Color(0xFF16A34A), Modifier.weight(1f))
-    }
-}
+// ── Nearby Tab ────────────────────────────────────────────────────────────────
 
 @Composable
-fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
-    ) {
+fun NearbyTab(users: List<User>, onChatClick: (User) -> Unit, onRefresh: () -> Unit) {
+    if (users.isEmpty()) {
         Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)
-            Text(label, fontSize = 10.sp, color = Color(0xFF64748B))
+            CircularProgressIndicator(color = Color(0xFF1B3A6B), modifier = Modifier.size(32.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            Text("Scanning for nearby students...", color = Color(0xFF64748B), fontSize = 13.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            TextButton(
+                onClick = onRefresh,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Refresh")
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            items(users, key = { it.userId }) { user ->
+                NearbyUserRow(user = user, onClick = { onChatClick(user) })
+                Divider(
+                    modifier = Modifier.padding(start = 76.dp),
+                    color = Color(0xFFE2E8F0),
+                    thickness = 0.5.dp
+                )
+            }
         }
     }
 }
 
 @Composable
-fun UserCard(user: User, onClick: () -> Unit) {
+fun NearbyUserRow(user: User, onClick: () -> Unit) {
     val avatarColors = listOf(
         Color(0xFF1B3A6B), Color(0xFF0F766E), Color(0xFF7C3AED),
         Color(0xFFDC2626), Color(0xFFD97706)
     )
     val avatarColor = avatarColors[user.userId.hashCode().and(0x7FFFFFFF) % avatarColors.size]
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .background(Color.White)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(avatarColor),
+            contentAlignment = Alignment.Center
         ) {
-            // Avatar
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(avatarColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = user.username.take(1).uppercase(),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (user.isOnline) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF16A34A))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-                    Text(user.username, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                }
-                Text("@${user.userId}", fontSize = 12.sp, color = Color(0xFF64748B))
-            }
-
-            TextButton(onClick = onClick) {
-                Text("Chat", color = Color(0xFF1B3A6B), fontWeight = FontWeight.SemiBold)
-            }
+            Text(
+                text = user.username.take(1).uppercase(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
         }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Online dot
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (user.isOnline) Color(0xFF16A34A) else Color(0xFFCBD5E1))
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(user.username, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color(0xFF0F172A))
+            }
+            Text(
+                "@${user.userId}",
+                fontSize = 12.sp,
+                color = Color(0xFF64748B),
+                modifier = Modifier.padding(start = 14.dp)
+            )
+        }
+
+        TextButton(
+            onClick = onClick,
+            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+        ) {
+            Text("Chat", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        }
+    }
+}
+
+// ── Stats bar ─────────────────────────────────────────────────────────────────
+
+@Composable
+fun StatsBar(stats: NetworkStats) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1B3A6B))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        StatPill("${stats.activeNodes} nodes",    Color(0xFF60A5FA))
+        StatPill("${stats.messagesSent} sent",    Color(0xFF34D399))
+        StatPill("${stats.messagesRelayed} relayed", Color(0xFFA78BFA))
+        StatPill("${stats.messagesDelivered} delivered", Color(0xFF4ADE80))
+    }
+}
+
+@Composable
+fun StatPill(label: String, color: Color) {
+    Text(
+        text = label,
+        fontSize = 11.sp,
+        color = color,
+        fontWeight = FontWeight.Medium
+    )
+}
+
+// ── Manual Connect Dialog ─────────────────────────────────────────────────────
+
+@Composable
+fun ConnectByIdDialog(
+    input: String,
+    error: String?,
+    onChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "New Chat",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color(0xFF0F172A)
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    "Enter the User ID of the person you want to message.\n" +
+                    "They don't need to be nearby — the message will be delivered when a relay path becomes available.",
+                    fontSize = 13.sp,
+                    color = Color(0xFF64748B),
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = onChange,
+                    label = { Text("User ID") },
+                    placeholder = { Text("e.g. alice123") },
+                    isError = error != null,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF1B3A6B),
+                        errorBorderColor   = Color(0xFFDC2626)
+                    )
+                )
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(error, color = Color(0xFFDC2626), fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B3A6B))
+            ) {
+                Text("Open Chat", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color(0xFF64748B))
+            }
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+private fun formatTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    return when {
+        diff < 60_000L -> "now"
+        diff < 3_600_000L -> "${diff / 60_000}m"
+        diff < 86_400_000L -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp))
+        else -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(timestamp))
     }
 }

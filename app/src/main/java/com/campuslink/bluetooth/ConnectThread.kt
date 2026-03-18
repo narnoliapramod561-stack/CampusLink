@@ -22,6 +22,13 @@ class ConnectThread(
             var socket: BluetoothSocket? = null
             try {
                 bluetoothAdapter.cancelDiscovery()
+
+                if (!BluetoothAdapter.checkBluetoothAddress(peerMacAddress)) {
+                    CampusLog.e("ConnectThread", "Invalid MAC address: $peerMacAddress")
+                    onFailed(peerMacAddress)
+                    return@launch
+                }
+
                 val device = bluetoothAdapter.getRemoteDevice(peerMacAddress)
                 socket = device.createInsecureRfcommSocketToServiceRecord(Constants.MY_APP_UUID)
                 socket.connect()

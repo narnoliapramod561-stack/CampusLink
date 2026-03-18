@@ -5,26 +5,20 @@ import androidx.lifecycle.viewModelScope
 import com.campuslink.bluetooth.BluetoothManager
 import com.campuslink.data.repository.ChatRepository
 import com.campuslink.data.session.SessionManager
+import com.campuslink.domain.model.ConversationPreview
 import com.campuslink.domain.model.NetworkStats
 import com.campuslink.domain.model.User
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-enum class SimNode { A, B, C, D, NONE }
-
-data class SimState(
-    val packetPos: Float = -1f, // 0.0 (A) to 1.0 (D)
-    val activeNode: SimNode = SimNode.NONE,
-    val isAck: Boolean = false,
-    val isRunning: Boolean = false
-)
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -33,72 +27,96 @@ class HomeViewModel @Inject constructor(
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
-    val users: StateFlow<List<User>> = repository.users
+    // ── My identity ───────────────────────────────────────────────────────
+    private val _myUserId = MutableStateFlow("")
+    val myUserId: StateFlow<String> = _myUserId.asStateFlow()
+
+    private val _myUsername = MutableStateFlow("")
+    val myUsername: StateFlow<String> = _myUsername.asStateFlow()
+
+    // ── BLE-discovered nearby users ───────────────────────────────────────
+    val nearbyUsers: StateFlow<List<User>> = repository.users
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // ── Conversation previews (WhatsApp-style previous chats) ─────────────
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val conversations: StateFlow<List<ConversationPreview>> = _myUserId
+        .flatMapLatest { id ->
+            if (id.isBlank()) flowOf(emptyList())
+            else repository.getConversationPreviews(id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Network stats ─────────────────────────────────────────────────────
     val networkStats: StateFlow<NetworkStats> = repository.networkStats
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NetworkStats())
 
     val isBluetoothRunning: StateFlow<Boolean> = bluetoothManager.isRunning
 
-    private val _myUserId = MutableStateFlow("")
-    val myUserId: StateFlow<String> = _myUserId.asStateFlow()
+    // ── Manual connect dialog state ───────────────────────────────────────
+    private val _showConnectDialog = MutableStateFlow(false)
+    val showConnectDialog: StateFlow<Boolean> = _showConnectDialog.asStateFlow()
 
-    // --- SIMULATION UI STATE ---
-    private val _simState = MutableStateFlow(SimState())
-    val simState: StateFlow<SimState> = _simState.asStateFlow()
+    private val _connectInput = MutableStateFlow("")
+    val connectInput: StateFlow<String> = _connectInput.asStateFlow()
+
+    private val _connectError = MutableStateFlow<String?>(null)
+    val connectError: StateFlow<String?> = _connectError.asStateFlow()
+
+    // Emits the userId to navigate to when a manual connect succeeds
+    private val _navigateToChat = MutableStateFlow<Pair<String,String>?>(null)
+    val navigateToChat: StateFlow<Pair<String,String>?> = _navigateToChat.asStateFlow()
 
     init {
         viewModelScope.launch {
-            _myUserId.value = sessionManager.getUserId() ?: ""
+            _myUserId.value   = sessionManager.getUserId()   ?: ""
+            _myUsername.value = sessionManager.getUsername() ?: ""
         }
     }
 
-    fun startRelayDemo() {
-        if (_simState.value.isRunning) return
-        
+    // ── Manual connect actions ────────────────────────────────────────────
+
+    fun openConnectDialog() {
+        _connectInput.value = ""
+        _connectError.value = null
+        _showConnectDialog.value = true
+    }
+
+    fun dismissConnectDialog() {
+        _showConnectDialog.value = false
+    }
+
+    fun onConnectInputChange(value: String) {
+        _connectInput.value = value
+        _connectError.value = null
+    }
+
+    fun confirmConnect() {
+        val userId = _connectInput.value.trim()
+        if (userId.isBlank()) {
+            _connectError.value = "Please enter a User ID"
+            return
+        }
+        if (!userId.matches(Regex("^[a-zA-Z0-9_]+$"))) {
+            _connectError.value = "User ID must be alphanumeric only"
+            return
+        }
+        if (userId == _myUserId.value) {
+            _connectError.value = "That's your own User ID"
+            return
+        }
         viewModelScope.launch {
-            _simState.value = SimState(isRunning = true, activeNode = SimNode.A, packetPos = 0f)
-            
-            // Forward Path: A -> B -> C -> D
-            animatePath(SimNode.A, SimNode.B, false)
-            animatePath(SimNode.B, SimNode.C, false)
-            animatePath(SimNode.C, SimNode.D, false)
-            
-            _simState.value = _simState.value.copy(activeNode = SimNode.D)
-            delay(500) // Processing at D
-            
-            // Backward Path (ACK): D -> C -> B -> A
-            animatePath(SimNode.D, SimNode.C, true)
-            animatePath(SimNode.C, SimNode.B, true)
-            animatePath(SimNode.B, SimNode.A, true)
-            
-            _simState.value = _simState.value.copy(activeNode = SimNode.A)
-            delay(500)
-            _simState.value = SimState(isRunning = false)
+            // Ensure the user exists in DB so conversation shows in list
+            repository.ensureUserExists(userId)
+            _showConnectDialog.value = false
+            _connectInput.value = ""
+            // Trigger navigation to chat screen
+            _navigateToChat.value = Pair(userId, userId)
         }
     }
 
-    private suspend fun animatePath(from: SimNode, to: SimNode, isAck: Boolean) {
-        val fromPos = nodeToPos(from)
-        val toPos = nodeToPos(to)
-        val steps = 20
-        _simState.value = _simState.value.copy(activeNode = from, isAck = isAck)
-        
-        for (i in 0..steps) {
-            val progress = i.toFloat() / steps
-            val currentPos = fromPos + (toPos - fromPos) * progress
-            _simState.value = _simState.value.copy(packetPos = currentPos)
-            delay(40)
-        }
-    }
-
-    private fun nodeToPos(node: SimNode): Float = when(node) {
-        SimNode.A -> 0f
-        SimNode.B -> 0.33f
-        SimNode.C -> 0.66f
-        SimNode.D -> 1f
-        else -> 0f
+    fun onNavigatedToChat() {
+        _navigateToChat.value = null
     }
 
     fun refreshScan() {

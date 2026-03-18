@@ -50,11 +50,26 @@ class BluetoothManager @Inject constructor(
     private var myUserId: String = ""
     private var myUsername: String = ""
 
+    var isSimulationMode: Boolean = false
+        private set
+
+    fun setSimulationMode(enabled: Boolean) {
+        isSimulationMode = enabled
+        if (enabled) {
+            CampusLog.d("BTManager", "Simulation mode enabled — silencing real Bluetooth")
+            stop()
+        }
+    }
+
     init {
         relayEngine.allThreads = { connectedThreads.values.toList() }
     }
 
     fun start() {
+        if (isSimulationMode) {
+            CampusLog.d("BTManager", "Start ignored: Simulation mode is active")
+            return
+        }
         scope.launch {
             myUserId = sessionManager.getUserId() ?: run {
                 CampusLog.e("BTManager", "No user session found — cannot start")
@@ -90,6 +105,13 @@ class BluetoothManager @Inject constructor(
     }
 
     private fun connectTo(mac: String) {
+        if (isSimulationMode) return
+
+        if (!BluetoothAdapter.checkBluetoothAddress(mac)) {
+            CampusLog.e("BTManager", "Ignoring invalid discovered MAC: $mac")
+            return
+        }
+
         ConnectThread(
             bluetoothAdapter = bluetoothAdapter,
             peerMacAddress = mac,
